@@ -6,6 +6,7 @@ package plugin
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +14,10 @@ import (
 	"path/filepath"
 	"strings"
 )
+
+// ErrNetworkPath: plugins on network shares are refused; even looking at
+// one would authenticate to that host.
+var ErrNetworkPath = errors.New("plugin: network paths are not allowed")
 
 // NotFoundError lists where a plugin program was looked for.
 type NotFoundError struct {
@@ -30,6 +35,11 @@ func (e *NotFoundError) Error() string {
 // no extension.
 func Resolve(name, exeDir string) (string, error) {
 	name = strings.TrimSpace(name)
+	// Refuse before any file access: UNC and device paths (\\host\…, \\?\UNC\…,
+	// \\.\…) would make Windows contact another host (Review #9).
+	if strings.HasPrefix(strings.ReplaceAll(name, "/", `\`), `\\`) {
+		return "", ErrNetworkPath
+	}
 	withExe := func(p string) []string {
 		if filepath.Ext(p) == "" {
 			return []string{p + ".exe", p}

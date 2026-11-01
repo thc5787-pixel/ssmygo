@@ -289,3 +289,53 @@ func send(port int, msg string) {
 		c.Close()
 	}
 }
+
+// Review #2: a plugin with a child process (a .cmd wrapper, a helper) must
+// not make Stop hang, and the child must not survive.
+func TestStopWithChildProcess(t *testing.T) {
+	p, err := Start(spec(echo(t), "spawn-child=1"), quiet(), nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { p.Stop(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Stop hung on a plugin with a child process")
+	}
+}
+
+// Review #8: after a stable run the restart backoff starts over at 1 s.
+func TestBackoffResetsAfterStableRun(t *testing.T) {
+	old := stableAfter
+	stableAfter = 300 * time.Millisecond
+	defer func() { stableAfter = old }()
+	restarted := make(chan int, 4)
+	p, err := Start(spec(echo(t), "crash-on=CRASH"), quiet(), nil, func(port int) { restarted <- port }, func(error) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Stop()
+	time.Sleep(400 * time.Millisecond)
+	send(p.LocalPort(), "CRASH") // first crash: 1 s
+	port := <-restarted
+	time.Sleep(400 * time.Millisecond) // stable again
+	start := time.Now()
+	send(port, "CRASH") // second crash: should be 1 s again, not 2 s
+	<-restarted
+	if d := time.Since(start); d > 1700*time.Millisecond {
+		t.Fatalf("second restart took %v; backoff did not reset", d)
+	}
+}
+
+// Review #9: a plugin path from an ss:// link must not make Windows contact
+// another host (UNC → SMB → NTLM authentication) before any dialog.
+func TestResolveRefusesNetworkPaths(t *testing.T) {
+	for _, p := range []string{`\attacker\share\x.exe`, `//attacker/share/x.exe`, `\?\UNC\attacker\share\x.exe`, `\.\UNC\attacker\share\x.exe`} {
+		_, err := Resolve(p, t.TempDir())
+		if !errors.Is(err, ErrNetworkPath) {
+			t.Errorf("Resolve(%q) = %v, want ErrNetworkPath", p, err)
+		}
+	}
+}

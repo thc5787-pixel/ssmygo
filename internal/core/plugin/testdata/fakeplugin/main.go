@@ -7,6 +7,7 @@
 //	crash-on=WORD    exit 4 when a client sends data starting with WORD
 //	exit-after-ms=N  exit 5 N ms after listening
 //	remote=HOST:PORT relay there instead of SS_REMOTE_HOST:PORT
+//	spawn-child=1    start a sleeping child that inherits stdout/stderr
 //
 // FAKE_ARGS_OUT, if set, receives os.Args[1:] joined with "|".
 package main
@@ -16,12 +17,16 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 )
 
 func main() {
+	if os.Getenv("FAKE_SLEEPER") != "" { // child of spawn-child=1: holds the inherited stdout
+		time.Sleep(time.Hour)
+	}
 	opts := map[string]string{}
 	for _, kv := range strings.Split(os.Getenv("SS_PLUGIN_OPTIONS"), ";") {
 		k, v, _ := strings.Cut(kv, "=")
@@ -31,6 +36,12 @@ func main() {
 		os.WriteFile(out, []byte(strings.Join(os.Args[1:], "|")), 0o644)
 	}
 	fmt.Println("fake: starting")
+	if opts["spawn-child"] == "1" { // like a .cmd wrapper or a helper process
+		child := exec.Command(os.Args[0])
+		child.Env = append(os.Environ(), "FAKE_SLEEPER=1")
+		child.Stdout, child.Stderr = os.Stdout, os.Stderr
+		child.Start()
+	}
 	if opts["die"] == "1" {
 		fmt.Fprintln(os.Stderr, "fake: bad options")
 		os.Exit(3)

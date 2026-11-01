@@ -52,6 +52,9 @@ const (
 	crashLimit   = 3
 )
 
+// stableAfter: a process that ran this long resets the restart backoff.
+var stableAfter = crashWindow
+
 var backoffs = []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second, 30 * time.Second}
 
 // Process is a supervised plugin.
@@ -68,7 +71,8 @@ type Process struct {
 	exited   chan struct{}
 	port     int
 	stopped  bool
-	gaveUp   bool // supervision ended (crash loop or verify failure)
+	gaveUp   bool      // supervision ended (crash loop or verify failure)
+	upSince  time.Time // when the current process became ready
 	crashes  []time.Time
 	restarts int
 	tail     []string
@@ -148,7 +152,11 @@ func (p *Process) launch() error {
 	go p.pump(stderr, &pumps)
 	exited := make(chan struct{})
 	var waitErr error
-	go func() { pumps.Wait(); waitErr = cmd.Wait(); close(exited) }()
+	// exited depends on the process only: a child that inherited stdout/stderr
+	// would keep the pumps open forever (Wait closes our read ends itself).
+	pumpsDone := make(chan struct{})
+	go func() { pumps.Wait(); close(pumpsDone) }()
+	go func() { waitErr = cmd.Wait(); close(exited) }()
 
 	deadline := time.Now().Add(readyTimeout)
 	for {
@@ -158,17 +166,23 @@ func (p *Process) launch() error {
 		}
 		select {
 		case <-exited:
+			select { // let the pumps catch the last lines it printed
+			case <-pumpsDone:
+			case <-time.After(500 * time.Millisecond):
+			}
+			p.job.terminate() // and any children it left
 			return &StartError{Name: p.name(), Tail: p.lastLines(), Err: fmt.Errorf("exited: %v", waitErr)}
 		case <-time.After(probeEvery):
 		}
 		if time.Now().After(deadline) {
+			p.job.terminate()
 			cmd.Process.Kill()
 			<-exited
 			return &StartError{Name: p.name(), Tail: p.lastLines(), Err: errors.New("not listening after 5s")}
 		}
 	}
 	p.mu.Lock()
-	p.cmd, p.exited, p.port = cmd, exited, port
+	p.cmd, p.exited, p.port, p.upSince = cmd, exited, port, time.Now()
 	p.mu.Unlock()
 	go p.supervise(cmd, exited)
 	return nil
@@ -195,6 +209,9 @@ func (p *Process) supervise(cmd *exec.Cmd, exited chan struct{}) {
 		p.logger.Error("plugin keeps crashing; not restarting", "plugin", p.name())
 		p.fail(ErrCrashLoop)
 		return
+	}
+	if now.Sub(p.upSince) > stableAfter {
+		p.restarts = 0 // it ran fine for a while: start the backoff over
 	}
 	wait := backoffs[min(p.restarts, len(backoffs)-1)]
 	p.restarts++
@@ -249,6 +266,7 @@ func (p *Process) Stop() {
 	p.stopped = true
 	cmd, exited := p.cmd, p.exited
 	p.mu.Unlock()
+	p.job.terminate() // the whole tree: a child holding our pipes must go too
 	if cmd != nil && cmd.Process != nil {
 		cmd.Process.Kill()
 		if exited != nil {

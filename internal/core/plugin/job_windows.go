@@ -56,3 +56,10 @@ func command(path, args string) *exec.Cmd {
 	cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: line, CreationFlags: windows.CREATE_NO_WINDOW}
 	return cmd
 }
+
+// terminate kills every process in the job (the plugin and its children).
+func (j jobHandle) terminate() {
+	if j.h != 0 {
+		windows.TerminateJobObject(j.h, 1)
+	}
+}
