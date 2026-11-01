@@ -332,7 +332,7 @@ func TestBackoffResetsAfterStableRun(t *testing.T) {
 // Review #9: a plugin path from an ss:// link must not make Windows contact
 // another host (UNC → SMB → NTLM authentication) before any dialog.
 func TestResolveRefusesNetworkPaths(t *testing.T) {
-	for _, p := range []string{`\attacker\share\x.exe`, `//attacker/share/x.exe`, `\?\UNC\attacker\share\x.exe`, `\.\UNC\attacker\share\x.exe`} {
+	for _, p := range []string{"\\\\attacker\\share\\x.exe", "//attacker/share/x.exe", "\\\\?\\UNC\\attacker\\share\\x.exe", "\\\\.\\UNC\\attacker\\share\\x.exe"} {
 		_, err := Resolve(p, t.TempDir())
 		if !errors.Is(err, ErrNetworkPath) {
 			t.Errorf("Resolve(%q) = %v, want ErrNetworkPath", p, err)
