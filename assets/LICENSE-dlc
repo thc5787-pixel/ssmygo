@@ -1,0 +1,7 @@
+dlc.dat.gz is dlc.dat from v2fly/domain-list-community, gzip-compressed.
+
+Source:  https://github.com/v2fly/domain-list-community
+Release: 20261101074624
+SHA-256 of dlc.dat: 64f213e84d75f7fddf43b9a75f5afcce09f07124cce592e458cbbfa045906aa8
+License: MIT License, Copyright (c) 2018-2019 V2Ray
+         https://github.com/v2fly/domain-list-community/blob/master/LICENSE
