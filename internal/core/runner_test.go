@@ -16,8 +16,10 @@ import (
 
 	"github.com/database64128/shadowsocks-go/service"
 	"github.com/database64128/shadowsocks-go/tslog"
+	"github.com/thc5787/ssmygo/assets"
 	"github.com/thc5787/ssmygo/internal/config"
 	"github.com/thc5787/ssmygo/internal/core/legacyaead/aeadtest"
+	"github.com/thc5787/ssmygo/internal/rules"
 )
 
 func quietLogger() *tslog.Logger {
@@ -185,6 +187,31 @@ func TestRunnerReapply(t *testing.T) {
 		}
 	}
 	if err := socksEcho(cfg.LocalPort, target, "direct"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Rules mode with real domain sets must actually start (not just marshal).
+func TestRunnerAppliesRulesMode(t *testing.T) {
+	rs, err := rules.Build(assets.DLC(), []string{"private", "cn"}, []string{"geolocation-!cn"}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	up := aeadtest.Start(t, "aes-256-gcm", "pw")
+	cfg := config.Default()
+	cfg.LocalPort = freePort(t)
+	cfg.Enabled = true
+	cfg.Configs = []config.Server{{Server: up.Addr().String(), ServerPort: int(up.Port()), Method: "aes-256-gcm", Password: "pw"}}
+	sc, err := Build(cfg, &rs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewRunner(quietLogger())
+	defer r.Stop()
+	if err := r.Apply(sc); err != nil {
+		t.Fatalf("rules mode does not start: %v", err)
+	}
+	if err := socksEcho(cfg.LocalPort, echoServer(t), "rules"); err != nil {
 		t.Fatal(err)
 	}
 }

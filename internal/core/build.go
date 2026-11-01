@@ -81,11 +81,12 @@ func Build(cfg *config.Config, rs *rules.Result) (*service.Config, error) {
 		{Name: "direct", Type: "gob", Path: rs.Direct},
 		{Name: "proxied", Type: "gob", Path: rs.Proxied},
 	}
+	// TCP only in P0: a route without Network would also need UDP clients.
 	sc.Router.Routes = []router.RouteConfig{
 		// Only literal IPs: resolving every domain to test it would cost a DNS lookup per request.
-		{Name: "private", Client: directName, ToPrefixes: privatePrefixes, DisableNameResolutionForIPRules: true},
-		{Name: "direct", Client: directName, ToDomainSets: []string{"direct"}},
-		{Name: "proxied", Client: proxyName, ToDomainSets: []string{"proxied"}},
+		{Name: "private", Network: "tcp", Client: directName, ToPrefixes: privatePrefixes, DisableNameResolutionForIPRules: true},
+		{Name: "direct", Network: "tcp", Client: directName, ToDomainSets: []string{"direct"}},
+		{Name: "proxied", Network: "tcp", Client: proxyName, ToDomainSets: []string{"proxied"}},
 	}
 	return sc, nil
 }
