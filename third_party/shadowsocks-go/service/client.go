@@ -245,6 +245,14 @@ type ClientConfig struct {
 	// key from a password, such as legacy Shadowsocks AEAD. (ssmygo patch A)
 	Password string `json:"password,omitzero"`
 
+	// DialerClient names a client listed earlier whose streams this client
+	// dials through, instead of connecting directly. (ssmygo patch C)
+	DialerClient string `json:"dialerClient,omitzero"`
+
+	// DialTimeout bounds connection setup for registered protocols that read
+	// it; built-in protocols ignore it. (ssmygo patch C)
+	DialTimeout jsoncfg.Duration `json:"dialTimeout,omitzero"`
+
 	// PaddingPolicy specifies the padding policy for Shadowsocks 2022 packets.
 	//
 	//  - "PadPlainDNS": Only add padding if the destination port is 53. (default)
@@ -368,6 +376,11 @@ func (c *ClientConfig) AddClient(
 		ipACL.Denylist = denylist
 	}
 
+	// ssmygo patch C: a dialer client carries streams only.
+	if c.DialerClient != "" && c.EnableUDP {
+		return fmt.Errorf("client %q: dialerClient does not carry UDP", c.Name)
+	}
+
 	switch c.Protocol {
 	case "direct":
 		if c.EnableTCP {
@@ -384,7 +397,7 @@ func (c *ClientConfig) AddClient(
 
 	case "none", "plain":
 		if c.EnableTCP {
-			innerClient, err := c.innerTCPClient(socketConfigCache, resolver, ipACL)
+			innerClient, err := c.innerStreamClient(streamClientByName, socketConfigCache, resolver, ipACL)
 			if err != nil {
 				return err
 			}
@@ -402,7 +415,7 @@ func (c *ClientConfig) AddClient(
 		}
 
 	case "socks5":
-		innerClient, err := c.innerTCPClient(socketConfigCache, resolver, ipACL)
+		innerClient, err := c.innerStreamClient(streamClientByName, socketConfigCache, resolver, ipACL)
 		if err != nil {
 			return err
 		}
@@ -449,7 +462,7 @@ func (c *ClientConfig) AddClient(
 			return errors.New("HTTP proxy does not support UDP")
 		}
 
-		innerClient, err := c.innerTCPClient(socketConfigCache, resolver, ipACL)
+		innerClient, err := c.innerStreamClient(streamClientByName, socketConfigCache, resolver, ipACL)
 		if err != nil {
 			return err
 		}
@@ -503,7 +516,7 @@ func (c *ClientConfig) AddClient(
 		}
 
 		if c.EnableTCP {
-			innerClient, err := c.innerTCPClient(socketConfigCache, resolver, ipACL)
+			innerClient, err := c.innerStreamClient(streamClientByName, socketConfigCache, resolver, ipACL)
 			if err != nil {
 				return err
 			}
@@ -534,7 +547,7 @@ func (c *ClientConfig) AddClient(
 			return fmt.Errorf("protocol %q: UDP not supported", c.Protocol)
 		}
 		if c.EnableTCP {
-			innerClient, err := c.innerTCPClient(socketConfigCache, resolver, ipACL)
+			innerClient, err := c.innerStreamClient(streamClientByName, socketConfigCache, resolver, ipACL)
 			if err != nil {
 				return err
 			}
@@ -547,6 +560,20 @@ func (c *ClientConfig) AddClient(
 	}
 
 	return nil
+}
+
+// innerStreamClient returns the client this client dials through: the one
+// named by DialerClient (which must be listed earlier), else a direct TCP
+// client. (ssmygo patch C)
+func (c *ClientConfig) innerStreamClient(streamClientByName map[string]netio.StreamClient, socketConfigCache *socketConfigCache, resolver conn.Resolver, ipACL netio.IPAllowDenyList) (netio.StreamClient, error) {
+	if c.DialerClient == "" {
+		return c.innerTCPClient(socketConfigCache, resolver, ipACL)
+	}
+	dc, ok := streamClientByName[c.DialerClient]
+	if !ok {
+		return nil, fmt.Errorf("dialer client %q not found (it must be listed before %q)", c.DialerClient, c.Name)
+	}
+	return dc, nil
 }
 
 func (c *ClientConfig) innerTCPClient(socketConfigCache *socketConfigCache, resolver conn.Resolver, ipACL netio.IPAllowDenyList) (*netio.TCPClient, error) {

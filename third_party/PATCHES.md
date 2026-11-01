@@ -34,3 +34,24 @@ Diff vs upstream:
      third_party/shadowsocks-go/service/service.go | 80 +++++++++++++++++----------
      3 files changed, 82 insertions(+), 32 deletions(-)
     third_party/shadowsocks-go/service/registry.go (new), service/registry_test.go (new)
+
+## Patch C — dialerClient chaining and dialTimeout
+
+Purpose: let ssmygo's SS client dial through a forward proxy client
+(P1-A1), and give registered protocols a connection timeout.
+
+- `service/client.go`: `ClientConfig.DialerClient` (name of an earlier
+  client to dial through) and `ClientConfig.DialTimeout` (read only by
+  registered protocols); `innerStreamClient` used by the none/plain, socks5,
+  http, 2022 and registry branches (`direct` unchanged); DialerClient with
+  UDP is rejected.
+- `service/registry.go`: `ClientFactory` takes `inner netio.StreamClient`.
+
+Tests: `service/dialer_test.go`, `service/registry_test.go`.
+
+Diff vs previous state:
+     third_party/shadowsocks-go/service/client.go       | 37 +++++++++++++++++++---
+     third_party/shadowsocks-go/service/registry.go     |  5 +--
+     .../shadowsocks-go/service/registry_test.go        |  8 ++---
+     3 files changed, 39 insertions(+), 11 deletions(-)
+    third_party/shadowsocks-go/service/dialer_test.go (new)

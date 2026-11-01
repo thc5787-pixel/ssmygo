@@ -11,7 +11,7 @@ func init() {
 	}
 }
 
-func newFromService(c *service.ClientConfig, inner *netio.TCPClient) (netio.StreamClient, error) {
+func newFromService(c *service.ClientConfig, inner netio.StreamClient) (netio.StreamClient, error) {
 	size, err := KeySize(c.Protocol)
 	if err != nil {
 		return nil, err

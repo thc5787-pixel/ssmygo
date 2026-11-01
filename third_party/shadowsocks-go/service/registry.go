@@ -12,8 +12,9 @@ import (
 )
 
 // ClientFactory creates a stream client for a registered client protocol.
-// inner is the client's direct TCP dialer to its endpoint.
-type ClientFactory func(c *ClientConfig, inner *netio.TCPClient) (netio.StreamClient, error)
+// inner is the stream client to dial through (direct TCP, or the client
+// named by ClientConfig.DialerClient — ssmygo patch C).
+type ClientFactory func(c *ClientConfig, inner netio.StreamClient) (netio.StreamClient, error)
 
 // ServerFactory creates a stream server for a registered server protocol.
 type ServerFactory func(sc *ServerConfig) (netio.StreamServer, error)

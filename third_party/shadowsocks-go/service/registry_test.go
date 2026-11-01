@@ -42,7 +42,7 @@ func freePort(t *testing.T) string {
 }
 
 func TestRegisterClientProtocol(t *testing.T) {
-	RegisterClientProtocol("test-echo", func(c *ClientConfig, inner *netio.TCPClient) (netio.StreamClient, error) {
+	RegisterClientProtocol("test-echo", func(c *ClientConfig, inner netio.StreamClient) (netio.StreamClient, error) {
 		cfg := ssnone.StreamClientConfig{Name: c.Name, InnerClient: inner}
 		return cfg.NewStreamClient(), nil
 	})
@@ -54,7 +54,7 @@ func TestRegisterClientProtocol(t *testing.T) {
 }
 
 func TestRegisteredClientRejectsUDP(t *testing.T) {
-	RegisterClientProtocol("test-tcponly", func(c *ClientConfig, inner *netio.TCPClient) (netio.StreamClient, error) {
+	RegisterClientProtocol("test-tcponly", func(c *ClientConfig, inner netio.StreamClient) (netio.StreamClient, error) {
 		cfg := ssnone.StreamClientConfig{Name: c.Name, InnerClient: inner}
 		return cfg.NewStreamClient(), nil
 	})
@@ -73,7 +73,7 @@ func TestUnknownProtocolStillErrors(t *testing.T) {
 
 func TestClientPasswordField(t *testing.T) {
 	var got string
-	RegisterClientProtocol("test-pass", func(c *ClientConfig, inner *netio.TCPClient) (netio.StreamClient, error) {
+	RegisterClientProtocol("test-pass", func(c *ClientConfig, inner netio.StreamClient) (netio.StreamClient, error) {
 		got = c.Password
 		cfg := ssnone.StreamClientConfig{Name: c.Name, InnerClient: inner}
 		return cfg.NewStreamClient(), nil
@@ -147,7 +147,7 @@ func TestStopIdempotent(t *testing.T) {
 }
 
 func TestDuplicateRegisterPanics(t *testing.T) {
-	f := func(c *ClientConfig, inner *netio.TCPClient) (netio.StreamClient, error) { return nil, nil }
+	f := func(c *ClientConfig, inner netio.StreamClient) (netio.StreamClient, error) { return nil, nil }
 	RegisterClientProtocol("test-dup", f)
 	defer func() {
 		if recover() == nil {
