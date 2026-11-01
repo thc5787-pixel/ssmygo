@@ -56,11 +56,12 @@ func TestProxyValidate(t *testing.T) {
 		{"auth no user", func(p *ForwardProxy) { p.UseAuth = true }, "authUser"},
 		{"auth special chars socks5", func(p *ForwardProxy) { p.UseAuth, p.AuthUser, p.AuthPwd = true, "a:b@c d", "密码 p@ss" }, ""},
 		{"auth special chars http", func(p *ForwardProxy) {
-			p.ProxyType, p.UseAuth, p.AuthUser, p.AuthPwd = ProxyHTTP, true, "a:b@c d", "密码 p@ss"
+			p.ProxyType, p.UseAuth, p.AuthUser, p.AuthPwd = ProxyHTTP, true, "b@c d", "密码 p:@ss"
 		}, ""},
 		{"socks5 user 256 bytes", func(p *ForwardProxy) { p.UseAuth, p.AuthUser = true, long }, "authUser"},
 		{"socks5 pwd 256 bytes", func(p *ForwardProxy) { p.UseAuth, p.AuthUser, p.AuthPwd = true, "u", long }, "authPwd"},
 		{"http user 256 bytes", func(p *ForwardProxy) { p.ProxyType, p.UseAuth, p.AuthUser = ProxyHTTP, true, long }, ""},
+		{"http user with colon", func(p *ForwardProxy) { p.ProxyType, p.UseAuth, p.AuthUser = ProxyHTTP, true, "a:b" }, "authUser"}, // RFC 7617
 	}
 	for _, tc := range cases {
 		p := ok

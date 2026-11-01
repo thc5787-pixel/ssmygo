@@ -71,6 +71,9 @@ func (p ForwardProxy) Validate() []FieldError {
 		if p.AuthUser == "" {
 			errs = append(errs, FieldError{"authUser", "Required."})
 		}
+		if p.ProxyType == ProxyHTTP && strings.Contains(p.AuthUser, ":") {
+			errs = append(errs, FieldError{"authUser", "No ':' in an HTTP user name."}) // RFC 7617
+		}
 		if p.ProxyType == ProxySOCKS5 { // RFC 1929: one length byte each
 			if len(p.AuthUser) > 255 {
 				errs = append(errs, FieldError{"authUser", "At most 255 bytes."})
