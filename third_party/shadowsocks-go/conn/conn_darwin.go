@@ -1,0 +1,32 @@
+package conn
+
+const defaultUDPSocketBufferSize = 8 * 1024 * 1024
+
+func (opts TCPListenSocketOptions) buildSetFns() setFuncSlice {
+	return setFuncSlice{}.
+		appendSetSendBufferSize(opts.SendBufferSize).
+		appendSetRecvBufferSize(opts.ReceiveBufferSize).
+		appendSetTrafficClassFunc(opts.TrafficClass).
+		appendSetReusePortFunc(opts.ReusePort).
+		appendSetPMTUDFunc(opts.PathMTUDiscovery)
+}
+
+func (opts TCPConnectSocketOptions) buildSetFns() setFuncSlice {
+	return setFuncSlice{}.
+		appendSetSendBufferSize(opts.SendBufferSize).
+		appendSetRecvBufferSize(opts.ReceiveBufferSize).
+		appendSetTrafficClassFunc(opts.TrafficClass).
+		appendSetIPv6SourceAddressPreference(opts.IPv6SourceAddressPreference).
+		appendSetPMTUDFunc(opts.PathMTUDiscovery)
+}
+
+func (opts UDPSocketOptions) buildSetFns() setFuncSlice {
+	return setFuncSlice{}.
+		appendSetSendBufferSize(opts.SendBufferSize).
+		appendSetRecvBufferSize(opts.ReceiveBufferSize).
+		appendSetTrafficClassFunc(opts.TrafficClass).
+		appendSetIPv6SourceAddressPreference(opts.IPv6SourceAddressPreference).
+		appendSetReusePortFunc(opts.ReusePort).
+		appendSetPMTUDFunc(opts.PathMTUDiscovery).
+		appendSetRecvPktinfoFunc(opts.ReceivePacketInfo)
+}

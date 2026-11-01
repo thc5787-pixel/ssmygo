@@ -1,0 +1,119 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime/debug"
+	"strings"
+
+	"github.com/database64128/shadowsocks-go"
+	"golang.org/x/term"
+)
+
+const usage = `A versatile and efficient proxy platform for secure communications
+
+Usage: %s [command]
+
+Commands:
+  config      Manage configuration files
+  service     Run service
+  domain-set  Manage domain set files
+  prefix-set  Manage prefix set files
+
+Flags:
+  -h, --help      Show this help message and exit
+  -V, --version   Show version information and exit
+
+Run '%s [command] -h' for more information on a command.
+`
+
+func printUsage(name string) {
+	fmt.Fprintf(os.Stderr, usage, name, name)
+}
+
+func main() {
+	var exitCode int
+	name, args := os.Args[0], os.Args[1:]
+	switch strings.TrimSuffix(filepath.Base(name), ".exe") {
+	case "shadowsocks-go-config":
+		exitCode = runConfig(name, args)
+	case "shadowsocks-go-service":
+		exitCode = runService(name, args)
+	case "shadowsocks-go-domain-set-converter":
+		exitCode = runDomainSetConvert(name, args)
+	case "shadowsocks-go-prefix-set-converter":
+		exitCode = runPrefixSet(name, args)
+	default:
+		if len(args) == 0 {
+			printUsage(name)
+			exitCode = 2
+			break
+		}
+		command := args[0]
+		nameSpaceCommand := name + " " + command
+		args = args[1:]
+		switch command {
+		case "config":
+			exitCode = runConfig(nameSpaceCommand, args)
+		case "service":
+			exitCode = runService(nameSpaceCommand, args)
+		case "domain-set":
+			exitCode = runDomainSet(nameSpaceCommand, args)
+		case "prefix-set":
+			exitCode = runPrefixSet(nameSpaceCommand, args)
+		case "--version", "-version", "-V":
+			printVersion()
+		case "--help", "-help", "-h":
+			printUsage(name)
+		default:
+			fmt.Fprintf(os.Stderr, "Unknown command: %q\nRun '%s -h' for usage.\n", command, name)
+			exitCode = 2
+		}
+	}
+	os.Exit(exitCode)
+}
+
+func printVersion() {
+	os.Stdout.WriteString("shadowsocks-go " + shadowsocks.Version + "\n")
+	if info, ok := debug.ReadBuildInfo(); ok {
+		os.Stdout.WriteString(info.String())
+	}
+}
+
+// defaultLogNoColor specifies whether to disable colored log output by default.
+//
+// Colored log output is disabled by default when at least one of the following conditions is met:
+//
+//   - The environment variable NO_COLOR is set and not empty
+//   - The environment variable SHADOWSOCKS_GO_NO_COLOR is set and not empty
+//   - The environment variable TERM is set to "dumb"
+//   - stderr is not a terminal
+//
+// References:
+//
+//   - https://clig.dev/
+//   - https://no-color.org/
+var defaultLogNoColor = func() bool {
+	if os.Getenv("NO_COLOR") != "" ||
+		os.Getenv("SHADOWSOCKS_GO_NO_COLOR") != "" ||
+		os.Getenv("TERM") == "dumb" {
+		return true
+	}
+
+	rawConn, err := os.Stderr.SyscallConn()
+	if err != nil {
+		return false
+	}
+	var isTerminal bool
+	if err := rawConn.Control(func(fd uintptr) {
+		isTerminal = term.IsTerminal(int(fd))
+	}); err != nil {
+		return false
+	}
+	if !isTerminal {
+		return true
+	}
+
+	return false
+}()

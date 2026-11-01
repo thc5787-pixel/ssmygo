@@ -1,0 +1,285 @@
+package httpproxy
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
+	"errors"
+	"slices"
+	"strings"
+
+	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/netio"
+	"github.com/database64128/shadowsocks-go/tslog"
+)
+
+var errUsernameContainsColon = errors.New("username contains colon")
+
+// ClientConfig contains configuration options for an HTTP proxy client.
+type ClientConfig struct {
+	// Name is the name of the client.
+	Name string
+
+	// InnerClient is the underlying stream client.
+	InnerClient netio.StreamClient
+
+	// Addr is the address of the HTTP proxy server.
+	Addr conn.Addr
+
+	// Certificates is an optional list of client certificates for mutual TLS.
+	// See [tls.Config.Certificates].
+	Certificates []tls.Certificate
+
+	// GetClientCertificate is an optional function that returns the client certificate for mutual TLS.
+	// See [tls.Config.GetClientCertificate].
+	GetClientCertificate func(*tls.CertificateRequestInfo) (*tls.Certificate, error)
+
+	// RootCAs is the set of root CAs used to verify server certificates.
+	// If nil, the host's CA set is used.
+	// See [tls.Config.RootCAs].
+	RootCAs *x509.CertPool
+
+	// ServerName is the server name used to verify the hostname on the returned certificates.
+	// See [tls.Config.ServerName].
+	ServerName string
+
+	// EncryptedClientHelloConfigList is a serialized ECHConfigList.
+	// See [tls.Config.EncryptedClientHelloConfigList].
+	EncryptedClientHelloConfigList []byte
+
+	// Username is the username used for authentication.
+	Username string
+
+	// Password is the password used for authentication.
+	Password string
+
+	// UseTLS controls whether to use TLS.
+	UseTLS bool
+
+	// UseBasicAuth controls whether to use HTTP Basic Authentication.
+	UseBasicAuth bool
+}
+
+// ProxyClient is an HTTP proxy client.
+//
+// ProxyClient implements [netio.StreamClient] and [netio.StreamDialer].
+type ProxyClient struct {
+	name        string
+	innerClient netio.StreamClient
+	serverAddr  conn.Addr
+
+	tlsConfig *tls.Config
+
+	proxyAuthHeader []byte
+}
+
+var (
+	_ netio.StreamClient = (*ProxyClient)(nil)
+	_ netio.StreamDialer = (*ProxyClient)(nil)
+)
+
+// NewProxyClient creates a new HTTP proxy client.
+func (c *ClientConfig) NewProxyClient() (*ProxyClient, error) {
+	var tlsConfig *tls.Config
+	if c.UseTLS {
+		tlsConfig = &tls.Config{
+			Certificates:                   c.Certificates,
+			GetClientCertificate:           c.GetClientCertificate,
+			RootCAs:                        c.RootCAs,
+			ServerName:                     c.ServerName,
+			EncryptedClientHelloConfigList: c.EncryptedClientHelloConfigList,
+		}
+	}
+
+	var proxyAuthHeader []byte
+	if c.UseBasicAuth {
+		if strings.IndexByte(c.Username, ':') >= 0 {
+			return nil, errUsernameContainsColon
+		}
+
+		const proxyAuthHeaderPrefix = "\r\nProxy-Authorization: Basic "
+		length := len(proxyAuthHeaderPrefix) + base64.StdEncoding.EncodedLen(len(c.Username)+1+len(c.Password))
+		proxyAuthHeader = make([]byte, length)
+		_ = copy(proxyAuthHeader, proxyAuthHeaderPrefix)
+		base64.StdEncoding.Encode(proxyAuthHeader[len(proxyAuthHeaderPrefix):], []byte(c.Username+":"+c.Password))
+	}
+
+	return &ProxyClient{
+		name:            c.Name,
+		innerClient:     c.InnerClient,
+		serverAddr:      c.Addr,
+		tlsConfig:       tlsConfig,
+		proxyAuthHeader: proxyAuthHeader,
+	}, nil
+}
+
+// NewStreamDialer implements [netio.StreamClient.NewStreamDialer].
+func (c *ProxyClient) NewStreamDialer() (netio.StreamDialer, netio.StreamDialerInfo) {
+	return c, netio.StreamDialerInfo{
+		Name:                 c.name,
+		NativeInitialPayload: false,
+	}
+}
+
+// DialStream implements [netio.StreamDialer.DialStream].
+func (c *ProxyClient) DialStream(ctx context.Context, targetAddr conn.Addr, payload []byte) (clientConn netio.Conn, err error) {
+	innerConn, err := c.innerClient.DialStream(ctx, c.serverAddr, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if c.tlsConfig != nil {
+		innerConn = tls.Client(innerConn, c.tlsConfig)
+	}
+
+	if err = netio.ConnWriteContextFunc(ctx, innerConn, func(innerConn netio.Conn) (err error) {
+		clientConn, err = ClientConnect(innerConn, targetAddr, c.proxyAuthHeader)
+		if err != nil {
+			return err
+		}
+
+		if len(payload) > 0 {
+			if _, err = clientConn.Write(payload); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}); err != nil {
+		_ = innerConn.Close()
+		return nil, err
+	}
+
+	return clientConn, nil
+}
+
+// ServerConfig contains configuration options for an HTTP proxy server.
+type ServerConfig struct {
+	// Users is a list of users allowed to connect to the server.
+	// It is ignored if none of the authentication methods are enabled.
+	Users []ServerUserCredentials
+
+	// Certificates is the list of server certificates for TLS.
+	// See [tls.Config.Certificates].
+	Certificates []tls.Certificate
+
+	// GetCertificate is a function that returns the server certificate for TLS.
+	// See [tls.Config.GetCertificate].
+	GetCertificate func(*tls.ClientHelloInfo) (*tls.Certificate, error)
+
+	// ClientCAs is the set of root CAs used to verify client certificates.
+	// See [tls.Config.ClientCAs].
+	ClientCAs *x509.CertPool
+
+	// EncryptedClientHelloKeys are the ECH keys to use when a client attempts ECH.
+	// See [tls.Config.EncryptedClientHelloKeys].
+	EncryptedClientHelloKeys []tls.EncryptedClientHelloKey
+
+	// EnableBasicAuth controls whether to enable HTTP Basic Authentication.
+	EnableBasicAuth bool
+
+	// EnableTLS controls whether to enable TLS.
+	EnableTLS bool
+
+	// RequireAndVerifyClientCert controls whether to require and verify client certificates.
+	RequireAndVerifyClientCert bool
+}
+
+// ServerUserCredentials contains the username and password for a server user.
+type ServerUserCredentials struct {
+	Username string
+	Password string
+}
+
+// ProxyServer is an HTTP proxy server.
+//
+// ProxyServer implements [netio.StreamServer].
+type ProxyServer struct {
+	viaReceivedBy   string
+	usernameByToken map[string]string
+}
+
+// NewProxyServer creates a new HTTP proxy server.
+func (c *ServerConfig) NewProxyServer() (netio.StreamServer, error) {
+	server := ProxyServer{
+		viaReceivedBy: rand.Text(),
+	}
+
+	if c.EnableBasicAuth {
+		var b []byte
+		server.usernameByToken = make(map[string]string, len(c.Users))
+		for _, user := range c.Users {
+			if strings.IndexByte(user.Username, ':') >= 0 {
+				return nil, errUsernameContainsColon
+			}
+
+			b = b[:0]
+			b = slices.Grow(b, len(user.Username)+1+len(user.Password))
+			b = append(b, user.Username...)
+			b = append(b, ':')
+			b = append(b, user.Password...)
+			token := base64.StdEncoding.EncodeToString(b)
+			server.usernameByToken[token] = user.Username
+		}
+	}
+
+	if c.EnableTLS {
+		tlsServer := TLSProxyServer{
+			plainServer: server,
+			tlsConfig: &tls.Config{
+				Certificates:             c.Certificates,
+				GetCertificate:           c.GetCertificate,
+				ClientCAs:                c.ClientCAs,
+				EncryptedClientHelloKeys: c.EncryptedClientHelloKeys,
+			},
+		}
+		if c.RequireAndVerifyClientCert {
+			tlsServer.tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+		}
+		return tlsServer, nil
+	}
+
+	return server, nil
+}
+
+// StreamServerInfo implements [netio.StreamServer.StreamServerInfo].
+func (ProxyServer) StreamServerInfo() netio.StreamServerInfo {
+	return netio.StreamServerInfo{
+		NativeInitialPayload: false,
+	}
+}
+
+// TLSProxyServer is an HTTP proxy server that uses TLS.
+//
+// TLSProxyServer implements [netio.StreamServer].
+type TLSProxyServer struct {
+	plainServer ProxyServer
+	tlsConfig   *tls.Config
+}
+
+// StreamServerInfo implements [netio.StreamServer.StreamServerInfo].
+func (TLSProxyServer) StreamServerInfo() netio.StreamServerInfo {
+	return netio.StreamServerInfo{
+		NativeInitialPayload: false,
+	}
+}
+
+// HandleStream implements [netio.StreamServer.HandleStream].
+func (s TLSProxyServer) HandleStream(c netio.Conn, logger *tslog.Logger) (netio.ConnRequest, error) {
+	tlsConn := tls.Server(c, s.tlsConfig)
+
+	req, err := s.plainServer.HandleStream(tlsConn, logger)
+	if err != nil {
+		_ = tlsConn.Close()
+		return netio.ConnRequest{}, err
+	}
+
+	if s.plainServer.usernameByToken == nil && s.tlsConfig.ClientAuth == tls.RequireAndVerifyClientCert {
+		tlsConnState := tlsConn.ConnectionState()
+		req.Username = tlsConnState.PeerCertificates[0].Subject.CommonName
+	}
+
+	return req, nil
+}
