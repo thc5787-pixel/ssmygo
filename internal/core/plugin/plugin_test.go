@@ -125,7 +125,7 @@ func TestStartRelays(t *testing.T) {
 
 // Review Focus 1: odd path, %VAR% expansion, quoted arguments.
 func TestArgsExpanded(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "Program Files ü")
+	dir := filepath.Join(exeTempDir(t), "Program Files ü")
 	os.MkdirAll(dir, 0o755)
 	odd := filepath.Join(dir, "fake plugin.exe")
 	b, _ := os.ReadFile(fakePath)

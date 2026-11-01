@@ -36,7 +36,7 @@ func TestMain(m *testing.M) {
 // pluginEnv is newEnv with its own exe dir holding fakeplugin.exe.
 func pluginEnv(t *testing.T) (*env, string) {
 	e := newEnv(t)
-	exeDir := t.TempDir()
+	exeDir := exeTempDir(t)
 	b, _ := os.ReadFile(fakeBuilt)
 	path := filepath.Join(exeDir, "fakeplugin.exe")
 	os.WriteFile(path, b, 0o755)
