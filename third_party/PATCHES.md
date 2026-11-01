@@ -7,4 +7,30 @@
 - Vendored: 2026-11-01, `git archive` of the commit, `.github/` removed.
 - License: AGPL-3.0 (`shadowsocks-go/LICENSE`).
 
-Patches: (none yet)
+
+## Patch A — protocol registry
+
+Purpose: let ssmygo add the `mixed` inbound and legacy AEAD clients from
+`internal/` without editing the built-in protocol switches per protocol.
+
+- `service/registry.go` (new): `RegisterClientProtocol`, `RegisterServerProtocol`, lookups.
+- `service/client.go`: `ClientConfig.Password` field; the `default:` branch of
+  `AddClient`'s protocol switch consults the registry (TCP only; UDP → error).
+- `service/server.go`: the `default:` branch of `TCPRelay`'s protocol switch
+  consults the registry.
+
+## Patch B — Manager.Start / Manager.Stop
+
+Purpose: synchronous start so callers get bind errors immediately.
+
+- `service/service.go`: `Run` split into `Start(ctx) error` and idempotent
+  `Stop() error`; `Run` keeps its signature and behaviour.
+
+Tests for both: `service/registry_test.go`.
+
+Diff vs upstream:
+     third_party/shadowsocks-go/service/client.go  | 24 +++++++-
+     third_party/shadowsocks-go/service/server.go  | 10 +++-
+     third_party/shadowsocks-go/service/service.go | 80 +++++++++++++++++----------
+     3 files changed, 82 insertions(+), 32 deletions(-)
+    third_party/shadowsocks-go/service/registry.go (new), service/registry_test.go (new)

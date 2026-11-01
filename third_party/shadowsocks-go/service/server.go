@@ -711,7 +711,15 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 		server = s
 
 	default:
-		return nil, fmt.Errorf("invalid protocol: %s", sc.Protocol)
+		// ssmygo patch A: registered protocols.
+		factory, ok := lookupServerFactory(sc.Protocol)
+		if !ok {
+			return nil, fmt.Errorf("invalid protocol: %s", sc.Protocol)
+		}
+		server, err = factory(sc)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	serverInfo := server.StreamServerInfo()

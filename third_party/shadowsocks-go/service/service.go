@@ -499,53 +499,73 @@ type Manager struct {
 	services     []shadowsocks.Service
 	router       *router.Router
 	logger       *tslog.Logger
+
+	// ssmygo patch B: state for Start/Stop.
+	running      []shadowsocks.Service
+	notifyStatus statusNotifier
+	cancel       context.CancelFunc
+}
+
+// Start starts all services and returns once they are listening. If any
+// service fails to start, it stops the ones already started and returns the
+// error. Call Stop to stop the services. (ssmygo patch B)
+func (m *Manager) Start(ctx context.Context) error {
+	ctx, m.cancel = context.WithCancel(ctx)
+	m.notifyStatus = newStatusNotifier(ctx)
+	m.notifyReload.Start(m.notifyStatus)
+	m.running = make([]shadowsocks.Service, 0, len(m.services))
+
+	for _, s := range m.services {
+		if err := s.Start(ctx); err != nil {
+			m.logger.Error("Failed to start service", s.SlogAttr(), tslog.Err(err))
+			m.logger.Info("Stopping", slog.String("reason", "one or more services failed to start"))
+			m.Stop()
+			return err
+		}
+		m.running = append(m.running, s)
+	}
+
+	m.logger.Info("Ready", slog.Int("services", len(m.services)))
+	m.notifyStatus.Ready()
+	return nil
+}
+
+// Stop stops the services started by Start. It is safe to call more than
+// once. (ssmygo patch B)
+func (m *Manager) Stop() error {
+	if m.cancel == nil {
+		return nil
+	}
+	m.notifyStatus.Stopping()
+
+	var firstErr error
+	for _, s := range m.running {
+		if err := s.Stop(); err != nil {
+			m.logger.Error("Failed to stop service", s.SlogAttr(), tslog.Err(err))
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	m.running = nil
+
+	m.notifyReload.Stop()
+	m.notifyStatus.Close()
+	m.cancel()
+	m.cancel = nil
+	return firstErr
 }
 
 // Run starts all services. If any service fails to start, it stops all running services
 // and returns false. On success, it blocks until the context is canceled, and then stops
 // all services. It returns true if no errors were encountered.
 func (m *Manager) Run(ctx context.Context) bool {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	notifyStatus := newStatusNotifier(ctx)
-	m.notifyReload.Start(notifyStatus)
-
-	ok := true
-	runningSvcs := make([]shadowsocks.Service, 0, len(m.services))
-
-	for _, s := range m.services {
-		if err := s.Start(ctx); err != nil {
-			m.logger.Error("Failed to start service", s.SlogAttr(), tslog.Err(err))
-			ok = false
-			break
-		}
-		runningSvcs = append(runningSvcs, s)
+	if err := m.Start(ctx); err != nil {
+		return false
 	}
-
-	var stopReason slog.Attr
-	if ok {
-		m.logger.Info("Ready", slog.Int("services", len(m.services)))
-		notifyStatus.Ready()
-		<-ctx.Done()
-		stopReason = slog.Any("reason", context.Cause(ctx))
-	} else {
-		cancel()
-		stopReason = slog.String("reason", "one or more services failed to start")
-	}
-	m.logger.Info("Stopping", stopReason)
-	notifyStatus.Stopping()
-
-	for _, s := range runningSvcs {
-		if err := s.Stop(); err != nil {
-			m.logger.Error("Failed to stop service", s.SlogAttr(), tslog.Err(err))
-			ok = false
-		}
-	}
-
-	m.notifyReload.Stop()
-	notifyStatus.Close()
-	return ok
+	<-ctx.Done()
+	m.logger.Info("Stopping", slog.Any("reason", context.Cause(ctx)))
+	return m.Stop() == nil
 }
 
 // Close closes the manager.

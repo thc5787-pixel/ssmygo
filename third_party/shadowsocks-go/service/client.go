@@ -241,6 +241,10 @@ type ClientConfig struct {
 	// Leave empty for single-user servers.
 	IPSKs [][]byte `json:"iPSKs,omitzero"`
 
+	// Password is the password for registered protocols that derive their
+	// key from a password, such as legacy Shadowsocks AEAD. (ssmygo patch A)
+	Password string `json:"password,omitzero"`
+
 	// PaddingPolicy specifies the padding policy for Shadowsocks 2022 packets.
 	//
 	//  - "PadPlainDNS": Only add padding if the destination port is 53. (default)
@@ -521,7 +525,25 @@ func (c *ClientConfig) AddClient(
 		}
 
 	default:
-		return fmt.Errorf("unknown protocol: %q", c.Protocol)
+		// ssmygo patch A: registered protocols (TCP only).
+		factory, ok := lookupClientFactory(c.Protocol)
+		if !ok {
+			return fmt.Errorf("unknown protocol: %q", c.Protocol)
+		}
+		if c.EnableUDP {
+			return fmt.Errorf("protocol %q: UDP not supported", c.Protocol)
+		}
+		if c.EnableTCP {
+			innerClient, err := c.innerTCPClient(socketConfigCache, resolver, ipACL)
+			if err != nil {
+				return err
+			}
+			streamClient, err := factory(c, innerClient)
+			if err != nil {
+				return err
+			}
+			streamClientByName[c.Name] = streamClient
+		}
 	}
 
 	return nil
