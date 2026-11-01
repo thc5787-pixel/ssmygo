@@ -90,4 +90,3 @@ func StartRust(t testing.TB, bin, method, password string) netip.AddrPort {
 	t.Fatalf("ssserver did not listen on %s", addr)
 	return netip.AddrPort{}
 }
-

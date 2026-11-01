@@ -10,7 +10,6 @@ import (
 	"sync"
 )
 
-
 var (
 	//go:embed strings_en.json
 	enJSON []byte
