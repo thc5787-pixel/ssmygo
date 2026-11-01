@@ -3,3 +3,23 @@ module github.com/thc5787/ssmygo
 go 1.27.3
 
 replace github.com/database64128/shadowsocks-go => ./third_party/shadowsocks-go
+
+require (
+	github.com/database64128/shadowsocks-go v0.0.0
+	golang.org/x/crypto v0.58.0
+)
+
+require (
+	github.com/database64128/netx-go v0.1.1 // indirect
+	github.com/database64128/tfo-go/v2 v2.4.2 // indirect
+	github.com/gaissmai/bart v0.30.0 // indirect
+	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
+	github.com/lmittmann/tint v1.2.1 // indirect
+	github.com/oschwald/geoip2-golang/v2 v2.5.0 // indirect
+	github.com/oschwald/maxminddb-golang/v2 v2.8.0 // indirect
+	github.com/riobard/go-bloom v0.0.0-20200614022211-cdc8013cb5b3 // indirect
+	github.com/shadowsocks/go-shadowsocks2 v0.1.5 // indirect
+	golang.org/x/net v0.62.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
+	lukechampine.com/blake3 v1.4.1 // indirect
+)
