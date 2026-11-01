@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/thc5787/ssmygo/internal/controller"
+	"github.com/thc5787/ssmygo/internal/core/plugin"
 )
 
 func TestBuildMenu(t *testing.T) {
@@ -81,5 +82,28 @@ func TestTooltipForwardIgnored(t *testing.T) {
 	tip := Tooltip(controller.State{Mode: controller.Global, Servers: []string{"x"}, ForwardIgnored: true}, "0.1.0")
 	if !strings.Contains(tip, "Forward proxy: not used with this server's plugin") {
 		t.Fatalf("%q", tip)
+	}
+}
+
+// Review #3: tell the user when supervision gives up on the plugin; for a
+// replaced file, offer the trust dialog right away.
+func TestPluginAlert(t *testing.T) {
+	nt := &controller.PluginNotTrustedError{Path: `C:\p\x.exe`, SHA256: "ab"}
+	cases := []struct {
+		name      string
+		prev, cur error
+		msg       string
+		retrust   bool
+	}{
+		{"none", nil, nil, "", false},
+		{"crash loop", nil, plugin.ErrCrashLoop, "Plugin keeps crashing and was stopped.", false},
+		{"replaced file", nil, nt, "", true},
+		{"same failure again", plugin.ErrCrashLoop, plugin.ErrCrashLoop, "", false},
+	}
+	for _, c := range cases {
+		msg, retrust := pluginAlert(controller.State{PluginFailure: c.prev}, controller.State{PluginFailure: c.cur})
+		if msg != c.msg || retrust != c.retrust {
+			t.Errorf("%s: %q %v", c.name, msg, retrust)
+		}
 	}
 }

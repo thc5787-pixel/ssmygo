@@ -22,6 +22,10 @@ type ForwardWindow struct {
 	pwd     string
 	saveErr string
 	onClose func()
+	saving  bool // a save is in flight
+	// run executes the save; nil = synchronously. The real window runs it off
+	// the main thread (a commit may wait for the current plugin).
+	run func(work func() error, done func(error))
 }
 
 // NewForwardWindow edits a copy of initial.
@@ -113,8 +117,8 @@ func (w *ForwardWindow) View(c *mui.Context) {
 			mui.Text(c, w.saveErr).TextColor(t.Danger)
 		}
 		mui.Row(c).Gap(t.Space(2)).Justify(mui.End).Children(func() {
-			if (mui.PrimaryButton(c, T("Save")).MinWidth(t.Rem(5)).Clicked() || c.Shortcut(0, mui.KeyEnter)) && w.apply(p, errs) {
-				w.close()
+			if mui.PrimaryButton(c, T("Save")).MinWidth(t.Rem(5)).Disabled(w.saving).Clicked() || c.Shortcut(0, mui.KeyEnter) {
+				w.apply(p, errs)
 			}
 			if mui.Button(c, T("Cancel")).MinWidth(t.Rem(5)).Clicked() {
 				w.close()
@@ -123,17 +127,26 @@ func (w *ForwardWindow) View(c *mui.Context) {
 	})
 }
 
-// apply saves when valid; field errors are already on screen.
-func (w *ForwardWindow) apply(p config.ForwardProxy, errs []config.FieldError) bool {
-	if len(errs) > 0 {
-		return false
+// apply saves when valid (field errors are already on screen) and closes
+// the window on success.
+func (w *ForwardWindow) apply(p config.ForwardProxy, errs []config.FieldError) {
+	if len(errs) > 0 || w.saving {
+		return
 	}
-	if err := w.save(p); err != nil {
-		w.saveErr = Message(err)
-		return false
+	run := w.run
+	if run == nil {
+		run = func(work func() error, done func(error)) { done(work()) }
 	}
-	w.saveErr = ""
-	return true
+	w.saving = true
+	run(func() error { return w.save(p) }, func(err error) {
+		w.saving = false
+		if err != nil {
+			w.saveErr = Message(err)
+			return
+		}
+		w.saveErr = ""
+		w.close()
+	})
 }
 
 var forwardWin *mygo.Window
@@ -150,6 +163,9 @@ func OpenForwardWindow(ctrl *controller.Controller) {
 		Title: i18n.T("resx.ForwardProxy"), Width: 280, Height: 400, MinWidth: 280, MinHeight: 400,
 		Content: mui.View(w.View),
 	})
+	w.run = func(work func() error, done func(error)) {
+		runActionWith(ctrl.TrustPlugin, nil, work, func(err error) { win.Update(func() { done(err) }) })
+	}
 	w.OnClose(win.Close)
 	win.OnClosed(func() { forwardWin = nil })
 	forwardWin = win

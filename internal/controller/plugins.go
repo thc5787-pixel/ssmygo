@@ -78,6 +78,7 @@ func verifyAgainst(list []config.TrustedPlugin) func(string) error {
 // adoptPlugin records the plugin state after next was applied.
 func (c *Controller) adoptPlugin(next *config.Config, started *plugin.Process) {
 	if started != nil {
+		c.pluginFailure = nil
 		if c.plug != nil {
 			c.plug.Stop()
 		}
@@ -90,6 +91,7 @@ func (c *Controller) adoptPlugin(next *config.Config, started *plugin.Process) {
 }
 
 func (c *Controller) stopPlugin() {
+	c.pluginFailure = nil
 	if c.plug != nil {
 		c.plug.Stop()
 		c.plug = nil
@@ -126,6 +128,7 @@ func (c *Controller) pluginFailed(ref *procRef, err error) {
 	}
 	c.d.Logger.Error("plugin stopped", "err", err)
 	c.lastErr = err
+	c.pluginFailure = err
 	c.dirty = true
 }
 

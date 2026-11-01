@@ -118,3 +118,22 @@ func TestForwardWindowCredentialsTogether(t *testing.T) {
 		t.Fatalf("saved %+v", *saved)
 	}
 }
+
+// Review #4: the real window saves off the main thread.
+func TestForwardSaveGoesThroughRun(t *testing.T) {
+	w, saved, tt := newFwd(config.ForwardProxy{ProxyTimeout: 3})
+	var pending func()
+	w.run = func(work func() error, done func(error)) { pending = func() { done(work()) } }
+	closed := false
+	w.OnClose(func() { closed = true })
+	tt.Click("Save")
+	if len(*saved) != 0 || pending == nil {
+		t.Fatal("saved on the caller")
+	}
+	tt.Frame()
+	tt.Click("Save") // in flight: ignored
+	pending()
+	if len(*saved) != 1 || !closed {
+		t.Fatalf("saved %d closed %v", len(*saved), closed)
+	}
+}

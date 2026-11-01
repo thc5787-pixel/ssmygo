@@ -125,6 +125,9 @@ func TestReplacedPluginAsksAgain(t *testing.T) {
 	for time.Now().Before(deadline) {
 		var nt *PluginNotTrustedError
 		if errors.As(c.State().Err, &nt) {
+			if !errors.As(c.State().PluginFailure, &nt) {
+				t.Fatal("PluginFailure not set by the supervision callback")
+			}
 			return
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -355,5 +358,16 @@ func TestEnableWithBrokenPluginFails(t *testing.T) {
 	}
 	if len(e.sys.Calls) != calls || c.State().Mode != Disabled {
 		t.Fatal("system proxy changed")
+	}
+}
+
+// A user-initiated refusal is not a plugin failure (the UI shows its dialog).
+func TestUserRefusalIsNotPluginFailure(t *testing.T) {
+	e, _ := pluginEnv(t)
+	e.writeConfig(func(c *config.Config) { c.Configs = append(c.Configs, e.pluginServer("")) })
+	c := e.start()
+	c.SelectServer(1) // untrusted
+	if c.State().PluginFailure != nil {
+		t.Fatalf("PluginFailure = %v", c.State().PluginFailure)
 	}
 }

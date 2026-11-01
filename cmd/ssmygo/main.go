@@ -73,14 +73,21 @@ func main() {
 			mygo.App.Quit()
 			return
 		}
-		if err := ctrl.Start(); err != nil {
-			ui.Notify(logger, fmt.Sprintf(i18n.T("ssmygo.startFailed"), ui.Message(err))) // tray tooltip shows it too; user can fix the port
-		} else if s := ctrl.State(); s.LastError != "" {
-			ui.Notify(logger, ui.Message(s.Err))
-		}
-		if s := ctrl.State(); (s.FirstRun || !s.HasServer()) && !mygo.App.WasOpenedAtLogin() {
-			ui.OpenConfigWindow(ctrl)
-		}
+		// Start off the main thread: it may wait for the current server's
+		// plugin (up to 5 s). The tray is already up and follows the state.
+		go func() {
+			err := ctrl.Start()
+			mygo.RunOnMain(func() {
+				if err != nil {
+					ui.Notify(logger, fmt.Sprintf(i18n.T("ssmygo.startFailed"), ui.Message(err))) // tooltip shows it too
+				} else if s := ctrl.State(); s.LastError != "" {
+					ui.Notify(logger, ui.Message(s.Err))
+				}
+				if s := ctrl.State(); (s.FirstRun || !s.HasServer()) && !mygo.App.WasOpenedAtLogin() {
+					ui.OpenConfigWindow(ctrl)
+				}
+			})
+		}()
 	})
 
 	if err := mygo.App.Run(); err != nil {

@@ -276,3 +276,20 @@ func TestSaveGoesThroughRun(t *testing.T) {
 		t.Fatalf("calls %d closed %v", s.calls, closed)
 	}
 }
+
+// Review #5: the save uses the selection at the moment OK was pressed, even
+// if the user clicks another row while the save (or trust dialog) is pending.
+func TestSaveCapturesSelection(t *testing.T) {
+	w, s, tt := newWin(sample(), nil)
+	w.servers[1].Password = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=" // make server 1 valid
+	w.sel = 1
+	var pending func()
+	w.run = func(work func() error, done func(error)) { pending = func() { done(work()) } }
+	tt.Frame()
+	tt.Click("OK")
+	w.sel, w.portable = 0, false // user clicks around meanwhile
+	pending()
+	if s.index != 1 || !s.portable {
+		t.Fatalf("saved index %d portable %v", s.index, s.portable)
+	}
+}

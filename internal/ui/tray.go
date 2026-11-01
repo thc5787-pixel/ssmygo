@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -120,18 +121,23 @@ func RunTray(ctrl *controller.Controller, version string, logger *slog.Logger) e
 		Forward:     func() { OpenForwardWindow(ctrl) },
 		EditServers: func() { OpenConfigWindow(ctrl) },
 		ImportClipboard: func() {
-			added, errs := ctrl.ImportURLs(mygo.Clipboard.ReadText())
-			for _, e := range errs {
-				logger.Warn("import", "err", e)
-			}
-			if len(added) == 0 && len(errs) == 0 {
-				Notify(logger, i18n.T("ssmygo.noLinks"))
-				return
-			}
-			if len(added) > 0 {
-				appendToOpenConfigWindow(added) // deferred #7
-			}
-			Notify(logger, fmt.Sprintf(i18n.T("ssmygo.imported"), len(added), len(errs)))
+			text := mygo.Clipboard.ReadText() // main thread
+			go func() {                       // a commit may wait for the current plugin (Review #4)
+				added, errs := ctrl.ImportURLs(text)
+				for _, e := range errs {
+					logger.Warn("import", "err", e)
+				}
+				mygo.RunOnMain(func() {
+					if len(added) == 0 && len(errs) == 0 {
+						Notify(logger, i18n.T("ssmygo.noLinks"))
+						return
+					}
+					if len(added) > 0 {
+						appendToOpenConfigWindow(added) // deferred #7
+					}
+					Notify(logger, fmt.Sprintf(i18n.T("ssmygo.imported"), len(added), len(errs)))
+				})
+			}()
 		},
 		Quit:      mygo.App.Quit,
 		ToggleLAN: func(on bool) { runAction(ctrl, logger, func() error { return ctrl.SetShareLAN(on) }) },
@@ -147,7 +153,20 @@ func RunTray(ctrl *controller.Controller, version string, logger *slog.Logger) e
 		tray.SetToolTip(Tooltip(s, version))
 	}
 	refresh(s)
-	ctrl.Subscribe(func(s controller.State) { mygo.RunOnMain(func() { refresh(s) }) })
+	last := s
+	ctrl.Subscribe(func(s controller.State) {
+		mygo.RunOnMain(func() {
+			refresh(s)
+			msg, retrust := pluginAlert(last, s)
+			last = s
+			switch {
+			case retrust: // the plugin file changed: ask again, then reconnect
+				runAction(ctrl, logger, func() error { return ctrl.SelectServer(s.Current) })
+			case msg != "":
+				Notify(logger, msg)
+			}
+		})
+	})
 	tray.OnAppearanceChange(func() { refresh(ctrl.State()) })
 	tray.OnClick(func() { OpenConfigWindow(ctrl) })
 	tray.OnRightClick(func() {
@@ -156,4 +175,18 @@ func RunTray(ctrl *controller.Controller, version string, logger *slog.Logger) e
 		tray.SetMenu(nil)
 	})
 	return nil
+}
+
+// pluginAlert decides what to tell the user when plugin supervision gives up
+// (Review #3): a message to show, or retrust=true to offer the trust dialog
+// for a plugin file that was replaced.
+func pluginAlert(prev, cur controller.State) (msg string, retrust bool) {
+	if cur.PluginFailure == nil || cur.PluginFailure == prev.PluginFailure {
+		return "", false
+	}
+	var nt *controller.PluginNotTrustedError
+	if errors.As(cur.PluginFailure, &nt) {
+		return "", true
+	}
+	return Message(cur.PluginFailure), false
 }

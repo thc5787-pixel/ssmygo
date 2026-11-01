@@ -26,6 +26,10 @@ type State struct {
 	// ForwardIgnored: a forward proxy is set but the current server uses a
 	// plugin, which connects by itself (A1-D3).
 	ForwardIgnored bool
+	// PluginFailure: plugin supervision gave up (crash loop, or the file was
+	// replaced and is no longer trusted). Not set for refusals of the user's
+	// own actions, which the UI handles where they happen.
+	PluginFailure error
 }
 
 // HasServer reports whether there is a server to select.

@@ -36,16 +36,17 @@ type Deps struct {
 
 // Controller serialises every change to the configuration.
 type Controller struct {
-	mu      sync.Mutex
-	d       Deps
-	paths   config.Paths
-	cfg     *config.Config
-	runner  *core.Runner
-	rules   *rules.Result
-	lastErr error // shown in the tray; typed so the UI can translate it
-	dirty   bool  // state changed: subscribers are told after the lock is released
-	started bool
-	plug    *plugin.Process // the current server's running plugin, if any
+	mu            sync.Mutex
+	d             Deps
+	paths         config.Paths
+	cfg           *config.Config
+	runner        *core.Runner
+	rules         *rules.Result
+	lastErr       error // shown in the tray; typed so the UI can translate it
+	dirty         bool  // state changed: subscribers are told after the lock is released
+	started       bool
+	plug          *plugin.Process // the current server's running plugin, if any
+	pluginFailure error           // set by plugin supervision when it gave up
 
 	subMu  sync.Mutex
 	subs   map[int]func(State)
@@ -528,6 +529,7 @@ func (c *Controller) stateLocked() State {
 		Port:     c.cfg.LocalPort,
 		FirstRun: c.cfg.FirstRun,
 	}
+	s.PluginFailure = c.pluginFailure
 	if srv, ok := c.cfg.Current(); ok && srv.Plugin != "" && c.cfg.Proxy.UseProxy {
 		s.ForwardIgnored = true // A1-D3
 	}

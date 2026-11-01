@@ -190,13 +190,13 @@ func (w *ConfigWindow) apply(closeAfter bool) {
 		servers[i] = e.result()
 	}
 	port, _ := strconv.Atoi(strings.TrimSpace(w.port))
-	portText := w.port
+	portText, sel, portable := w.port, w.sel, w.portable // as of OK, not of later clicks (Review #5)
 	run := w.run
 	if run == nil {
 		run = func(work func() error, done func(error)) { done(work()) }
 	}
 	w.saving = true
-	run(func() error { return w.save(servers, w.sel, port, w.portable) }, func(err error) {
+	run(func() error { return w.save(servers, sel, port, portable) }, func(err error) {
 		w.saving = false
 		if err != nil {
 			w.saveErr = Message(err)
