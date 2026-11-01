@@ -36,7 +36,12 @@ var errMalformed = errors.New("rules: malformed dlc.dat")
 //	GeoSite     { string country_code = 1; repeated Domain domain = 2; }
 //	Domain      { Type type = 1; string value = 2; repeated Attribute attribute = 3; }
 //	Attribute   { string key = 1; oneof { bool bool_value = 2; int64 int_value = 3; } }
-func ParseDLC(data []byte) (map[string][]Domain, error) {
+func ParseDLC(data []byte) (map[string][]Domain, error) { return parseDLC(data, nil) }
+
+// parseDLC decodes only the groups in want (all when want is nil); other
+// entries are skipped without allocating, which keeps a cold build small.
+// country_code precedes the domains in v2fly's files, so it is known in time.
+func parseDLC(data []byte, want map[string]bool) (map[string][]Domain, error) {
 	out := map[string][]Domain{}
 	err := eachField(data, func(num protowire.Number, typ protowire.Type, v []byte, _ uint64) error {
 		if num != 1 || typ != protowire.BytesType {
@@ -44,11 +49,13 @@ func ParseDLC(data []byte) (map[string][]Domain, error) {
 		}
 		var code string
 		var domains []Domain
+		skip := false
 		err := eachField(v, func(num protowire.Number, typ protowire.Type, v []byte, _ uint64) error {
 			switch {
 			case num == 1 && typ == protowire.BytesType:
 				code = strings.ToLower(string(v))
-			case num == 2 && typ == protowire.BytesType:
+				skip = want != nil && !want[code]
+			case num == 2 && typ == protowire.BytesType && !skip:
 				d, err := parseDomain(v)
 				if err != nil {
 					return err
@@ -60,7 +67,9 @@ func ParseDLC(data []byte) (map[string][]Domain, error) {
 		if err != nil {
 			return err
 		}
-		out[code] = append(out[code], domains...)
+		if !skip {
+			out[code] = append(out[code], domains...)
+		}
 		return nil
 	})
 	if err != nil {

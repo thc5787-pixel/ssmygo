@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -178,5 +179,23 @@ func TestBuildEmbeddedDefaults(t *testing.T) {
 	}
 	if !loadSet(t, r.Direct).Match("www.baidu.com") || !loadSet(t, r.Proxied).Match("www.google.com") {
 		t.Error("real data does not route baidu direct / google proxied")
+	}
+}
+
+// A cold build must not allocate much more than the selected groups need:
+// the whole-file parse left ~60 MB resident on first launch (tray target 40 MB).
+func TestBuildAllocations(t *testing.T) {
+	dlc := assets.DLC()
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	if _, err := Build(dlc, []string{"private", "cn", "geolocation-!cn@cn"}, []string{"geolocation-!cn"}, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	runtime.ReadMemStats(&after)
+	mb := float64(after.TotalAlloc-before.TotalAlloc) / (1 << 20)
+	t.Logf("cold build allocated %.1f MB", mb)
+	if mb > 30 { // whole-file parsing was 44 MB; selected groups alone are ~26 MB
+		t.Errorf("cold build allocated %.1f MB > 30 MB", mb)
 	}
 }

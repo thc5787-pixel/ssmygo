@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -85,6 +86,9 @@ func (c *Controller) Start() error {
 	} else {
 		c.rules = &rs
 	}
+	// Return the cold rules build's garbage to the OS right away (tray-only
+	// working-set target is 40 MB); cheap, and a no-op on warm starts.
+	debug.FreeOSMemory()
 
 	if err := c.applyCore(c.cfg); err != nil {
 		c.lastErr = err.Error()

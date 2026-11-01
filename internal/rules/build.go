@@ -23,7 +23,12 @@ func Build(dlc []byte, direct, proxied []string, outDir string) (Result, error) 
 	if b, err := os.ReadFile(stamp); err == nil && string(b) == key && exists(r.Direct) && exists(r.Proxied) {
 		return r, nil
 	}
-	list, err := ParseDLC(dlc)
+	want := map[string]bool{}
+	for _, g := range append(append([]string{}, direct...), proxied...) {
+		name, _, _ := strings.Cut(strings.ToLower(g), "@")
+		want[name] = true
+	}
+	list, err := parseDLC(dlc, want)
 	if err != nil {
 		return Result{}, err
 	}
