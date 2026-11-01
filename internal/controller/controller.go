@@ -18,6 +18,7 @@ import (
 	"github.com/database64128/shadowsocks-go/tslog"
 	"github.com/thc5787/ssmygo/internal/config"
 	"github.com/thc5787/ssmygo/internal/core"
+	"github.com/thc5787/ssmygo/internal/core/plugin"
 	"github.com/thc5787/ssmygo/internal/rules"
 	"github.com/thc5787/ssmygo/internal/sysproxy"
 )
@@ -30,6 +31,7 @@ type Deps struct {
 	Sys          sysproxy.Proxy
 	Logger       *slog.Logger
 	DLC          []byte // geosite dlc.dat
+	ExeDir       string // plugin lookup and working directory
 }
 
 // Controller serialises every change to the configuration.
@@ -43,6 +45,7 @@ type Controller struct {
 	lastErr error // shown in the tray; typed so the UI can translate it
 	dirty   bool  // state changed: subscribers are told after the lock is released
 	started bool
+	plug    *plugin.Process // the current server's running plugin, if any
 
 	subMu  sync.Mutex
 	subs   map[int]func(State)
@@ -137,7 +140,11 @@ func (c *Controller) Start() error {
 	// working-set target is 40 MB); cheap, and a no-op on warm starts.
 	debug.FreeOSMemory()
 
-	coreErr := c.applyCore(c.cfg)
+	started, port, coreErr := c.preparePlugin(c.cfg)
+	c.plug = started
+	if err := c.applyCore(c.cfg, port); coreErr == nil {
+		coreErr = err
+	}
 	if c.cfg.Enabled && (coreErr != nil || unusable(c.cfg) != nil) {
 		// Never leave the system proxy on a port we cannot serve, nor point it
 		// at a core that would send everything direct.
@@ -217,9 +224,9 @@ func (c *Controller) setSys(s sysproxy.Settings) error {
 
 // applyCore rebuilds the core for cfg. A listen failure becomes a
 // *PortInUseError.
-func (c *Controller) applyCore(cfg *config.Config) error {
-	sc, err := core.Build(cfg, c.rules, 0)
-	if err != nil && !errors.Is(err, core.ErrNoServer) {
+func (c *Controller) applyCore(cfg *config.Config, pluginPort int) error {
+	sc, err := core.Build(cfg, c.rules, pluginPort)
+	if err != nil && !errors.Is(err, core.ErrNoServer) && !errors.Is(err, core.ErrPluginNotRunning) {
 		return err
 	}
 	err = c.runner.Apply(sc)
@@ -263,14 +270,27 @@ func (c *Controller) applySysproxy(prev, next *config.Config) error {
 // state changed. On failure everything returns to the previous configuration.
 func (c *Controller) commit(next *config.Config) error {
 	prev := c.cfg
+	// A plugin must be running before the core can dial it; a newly started
+	// one is adopted only if the whole change succeeds.
+	started, port, err := c.preparePlugin(next)
+	if err != nil {
+		return c.fail(err)
+	}
+	abort := func() {
+		if started != nil {
+			started.Stop()
+		}
+	}
 	if prev.Enabled && !next.Enabled {
 		// Disabling: give the user their proxy back first, even if the core
 		// then fails (e.g. the port was taken) — never stay on a dead port.
 		if err := c.applySysproxy(prev, next); err != nil {
+			abort()
 			return c.fail(err)
 		}
-		coreErr := c.applyCore(next)
+		coreErr := c.applyCore(next, port)
 		c.cfg = next
+		c.adoptPlugin(next, started)
 		c.save()
 		if coreErr != nil {
 			return c.fail(coreErr)
@@ -279,14 +299,17 @@ func (c *Controller) commit(next *config.Config) error {
 		c.dirty = true
 		return nil
 	}
-	if err := c.applyCore(next); err != nil {
+	if err := c.applyCore(next, port); err != nil {
+		abort()
 		c.rollbackCore(prev)
 		return c.fail(err)
 	}
 	if err := c.applySysproxy(prev, next); err != nil {
+		abort()
 		c.rollbackCore(prev)
 		return c.fail(err)
 	}
+	c.adoptPlugin(next, started)
 	c.cfg = next
 	c.lastErr = nil
 	c.dirty = true
@@ -298,7 +321,7 @@ func (c *Controller) commit(next *config.Config) error {
 }
 
 func (c *Controller) rollbackCore(prev *config.Config) {
-	if err := c.applyCore(prev); err != nil {
+	if err := c.applyCore(prev, c.pluginPort()); err != nil {
 		c.d.Logger.Error("rollback failed", "err", err)
 	}
 }
@@ -323,8 +346,6 @@ func unusable(cfg *config.Config) error {
 	switch {
 	case !ok:
 		return ErrNoServer
-	case s.Plugin != "":
-		return ErrPluginUnsupported
 	}
 	if errs := s.Validate(); len(errs) > 0 {
 		return fmt.Errorf("server %q: %w", s.Title(), errs[0])
@@ -497,6 +518,9 @@ func (c *Controller) stateLocked() State {
 		Port:     c.cfg.LocalPort,
 		FirstRun: c.cfg.FirstRun,
 	}
+	if srv, ok := c.cfg.Current(); ok && srv.Plugin != "" && c.cfg.Proxy.UseProxy {
+		s.ForwardIgnored = true // A1-D3
+	}
 	if c.lastErr != nil {
 		s.LastError = c.lastErr.Error()
 	}
@@ -561,5 +585,6 @@ func (c *Controller) Shutdown() {
 	if err := c.save(); err != nil {
 		c.d.Logger.Error("save on exit", "err", err)
 	}
+	c.stopPlugin()
 	c.runner.Stop()
 }

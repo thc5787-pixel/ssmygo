@@ -6,6 +6,7 @@
 //	slow=1           never listen
 //	crash-on=WORD    exit 4 when a client sends data starting with WORD
 //	exit-after-ms=N  exit 5 N ms after listening
+//	remote=HOST:PORT relay there instead of SS_REMOTE_HOST:PORT
 //
 // FAKE_ARGS_OUT, if set, receives os.Args[1:] joined with "|".
 package main
@@ -47,6 +48,9 @@ func main() {
 	}
 	crashWord := opts["crash-on"]
 	remote := net.JoinHostPort(os.Getenv("SS_REMOTE_HOST"), os.Getenv("SS_REMOTE_PORT"))
+	if r := opts["remote"]; r != "" {
+		remote = r // tests: the configured server is unreachable, only this path works
+	}
 	for {
 		c, err := ln.Accept()
 		if err != nil {

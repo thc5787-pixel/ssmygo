@@ -112,3 +112,10 @@ func (c *Config) Trusted(path, sha string) bool {
 	}
 	return false
 }
+
+// SetProxy replaces the forward proxy settings, keeping unknown keys of the
+// original "proxy" object.
+func (c *Config) SetProxy(p ForwardProxy) {
+	p.extra = c.Proxy.extra
+	c.Proxy = p
+}

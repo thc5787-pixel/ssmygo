@@ -30,6 +30,7 @@ type env struct {
 	roaming  string
 	sys      *sysproxy.Fake
 	upstream netip.AddrPort
+	exeDir   string
 	target   netip.AddrPort
 }
 
@@ -54,6 +55,7 @@ func (e *env) deps() Deps {
 		Sys:          e.sys,
 		Logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
 		DLC:          assets.DLC(),
+		ExeDir:       e.exeDir,
 	}
 }
 
@@ -68,6 +70,7 @@ func (e *env) writeConfig(mod func(*config.Config)) {
 	c.Configs = []config.Server{e.server()}
 	c.LocalPort = freePort(e.t)
 	c.FirstRun = false
+	c.Global = true // rules mode would route the 127.0.0.1 echo target direct, skipping the chain under test
 	if mod != nil {
 		mod(c)
 	}
@@ -251,6 +254,7 @@ func TestRestartWhileEnabledKeepsRecord(t *testing.T) {
 	e.writeConfig(func(c *config.Config) {
 		c.LocalPort = port
 		c.Enabled = true
+		c.Global = false
 		c.Sysproxy = config.SysproxyRecord{Recorded: true, Flags: userProxy.Flags, PacURL: userProxy.PacURL, Bypass: userProxy.Bypass}
 	})
 	e.sys.Cur = sysproxy.LocalSettings(port, userProxy.Bypass) // left over from the crash
@@ -613,15 +617,6 @@ func TestSaveServersKeepsUnchangedInvalid(t *testing.T) {
 	}
 }
 
-// Plugins are P1: such a server cannot carry traffic yet.
-func TestPluginServerNotUsable(t *testing.T) {
-	e := newEnv(t)
-	e.writeConfig(func(c *config.Config) { c.Configs[0].Plugin = "v2ray-plugin" })
-	c := e.start()
-	if err := c.SetMode(Rules); !errors.Is(err, ErrPluginUnsupported) || len(e.sys.Calls) != 0 {
-		t.Fatalf("err %v calls %v", err, e.sys.Calls)
-	}
-}
 
 // Deferred #4: errors are typed so the UI can translate them.
 func TestPortInUseErrorTyped(t *testing.T) {

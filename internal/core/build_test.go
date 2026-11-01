@@ -143,3 +143,19 @@ func TestBuildInvalidForwardIsError(t *testing.T) {
 		t.Fatal("invalid forward proxy accepted")
 	}
 }
+
+// A plugin server whose plugin is not running must not be dialed directly:
+// that skips the plugin the user configured.
+func TestBuildPluginNotRunningIsNoProxy(t *testing.T) {
+	c := sampleConfig()
+	c.Configs[0].Plugin = "v2ray-plugin"
+	sc, err := Build(c, nil, 0)
+	if !errors.Is(err, ErrPluginNotRunning) {
+		t.Fatalf("err = %v", err)
+	}
+	for _, cl := range sc.Clients {
+		if cl.Name == "proxy" {
+			t.Fatal("plugin server dialed without its plugin")
+		}
+	}
+}

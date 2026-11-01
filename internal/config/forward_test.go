@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"encoding/json"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -97,5 +98,17 @@ func TestTrusted(t *testing.T) {
 	d.TrustedPlugins[0].SHA256 = "zz"
 	if c.TrustedPlugins[0].SHA256 != "ab" {
 		t.Fatal("Clone shares TrustedPlugins")
+	}
+}
+
+func TestSetProxyKeepsUnknownKeys(t *testing.T) {
+	c, err := Load(filepath.Join("testdata", "original-4.4.1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Proxy.extra = map[string]json.RawMessage{"futureKey": json.RawMessage("1")}
+	c.SetProxy(ForwardProxy{UseProxy: true, ProxyServer: "h", ProxyPort: 1, ProxyTimeout: 3})
+	if !c.Proxy.UseProxy || string(c.Proxy.extra["futureKey"]) != "1" {
+		t.Fatalf("%+v", c.Proxy)
 	}
 }

@@ -28,6 +28,10 @@ import (
 // usable config (local port + direct only).
 var ErrNoServer = errors.New("core: no server configured")
 
+// ErrPluginNotRunning: the current server needs its plugin, which is not
+// running; like ErrNoServer, Build returns a direct-only config.
+var ErrPluginNotRunning = errors.New("core: plugin not running")
+
 const (
 	serverName  = "local"
 	proxyName   = "proxy"
@@ -72,6 +76,9 @@ func Build(cfg *config.Config, rs *rules.Result, pluginPort int) (*service.Confi
 	srv, ok := cfg.Current()
 	if !ok || len(srv.Validate()) > 0 {
 		return sc, ErrNoServer
+	}
+	if srv.Plugin != "" && pluginPort == 0 {
+		return sc, ErrPluginNotRunning
 	}
 	if pluginPort > 0 {
 		srv.Server, srv.ServerPort = "127.0.0.1", pluginPort

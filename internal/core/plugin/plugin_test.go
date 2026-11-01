@@ -180,11 +180,17 @@ func TestStopKills(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !p.Running() {
+		t.Fatal("not Running() after Start")
+	}
 	pid := p.PID()
 	p.Stop()
 	p.Stop() // idempotent
 	if alive(pid) {
 		t.Fatal("plugin still running after Stop")
+	}
+	if p.Running() {
+		t.Fatal("Running() after Stop")
 	}
 }
 
@@ -232,6 +238,9 @@ func TestCrashLoop(t *testing.T) {
 	defer mu.Unlock()
 	if !errors.Is(failed, ErrCrashLoop) || starts != 3 {
 		t.Fatalf("failed=%v starts=%d (want ErrCrashLoop after 3 starts)", failed, starts)
+	}
+	if p.Running() {
+		t.Fatal("Running() after giving up")
 	}
 }
 

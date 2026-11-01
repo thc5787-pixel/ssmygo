@@ -23,6 +23,9 @@ type State struct {
 	Err       error  // typed: see PortInUseError, ErrNoServer, SaveError
 	Port      int
 	FirstRun  bool
+	// ForwardIgnored: a forward proxy is set but the current server uses a
+	// plugin, which connects by itself (A1-D3).
+	ForwardIgnored bool
 }
 
 // HasServer reports whether there is a server to select.

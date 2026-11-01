@@ -68,6 +68,7 @@ type Process struct {
 	exited   chan struct{}
 	port     int
 	stopped  bool
+	gaveUp   bool // supervision ended (crash loop or verify failure)
 	crashes  []time.Time
 	restarts int
 	tail     []string
@@ -230,6 +231,9 @@ func (p *Process) supervise(cmd *exec.Cmd, exited chan struct{}) {
 func closedChan() chan struct{} { c := make(chan struct{}); close(c); return c }
 
 func (p *Process) fail(err error) {
+	p.mu.Lock()
+	p.gaveUp = true
+	p.mu.Unlock()
 	if p.onFail != nil {
 		p.onFail(err)
 	}
@@ -302,4 +306,12 @@ func expand(s string, env []string) string {
 		}
 		return m
 	})
+}
+
+// Running reports whether the plugin is supervised: false after Stop or
+// after supervision gave up (crash loop, file no longer trusted).
+func (p *Process) Running() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return !p.stopped && !p.gaveUp
 }
