@@ -24,18 +24,20 @@ type SysproxyRecord struct {
 
 // Config is gui-config.json. Fields not listed are preserved on save.
 type Config struct {
-	Configs              []Server       `json:"configs"`
-	Index                int            `json:"index"`
-	Enabled              bool           `json:"enabled"`
-	Global               bool           `json:"global"`
-	LocalPort            int            `json:"localPort"`
-	ShareOverLan         bool           `json:"shareOverLan"`
-	PortableMode         bool           `json:"portableMode"`
-	FirstRun             bool           `json:"firstRun"`
-	GeositeDirectGroups  []string       `json:"geositeDirectGroups"`
-	GeositeProxiedGroups []string       `json:"geositeProxiedGroups"`
-	GeositePreferDirect  bool           `json:"geositePreferDirect"`
-	Sysproxy             SysproxyRecord `json:"ssmygoSysproxy"`
+	Configs              []Server        `json:"configs"`
+	Index                int             `json:"index"`
+	Enabled              bool            `json:"enabled"`
+	Global               bool            `json:"global"`
+	LocalPort            int             `json:"localPort"`
+	ShareOverLan         bool            `json:"shareOverLan"`
+	PortableMode         bool            `json:"portableMode"`
+	FirstRun             bool            `json:"firstRun"`
+	GeositeDirectGroups  []string        `json:"geositeDirectGroups"`
+	GeositeProxiedGroups []string        `json:"geositeProxiedGroups"`
+	GeositePreferDirect  bool            `json:"geositePreferDirect"`
+	Sysproxy             SysproxyRecord  `json:"ssmygoSysproxy"`
+	Proxy                ForwardProxy    `json:"proxy"`
+	TrustedPlugins       []TrustedPlugin `json:"ssmygoTrustedPlugins,omitempty"`
 
 	extra map[string]json.RawMessage
 }
@@ -54,6 +56,7 @@ func Default() *Config {
 		FirstRun:             true,
 		GeositeDirectGroups:  []string{"private", "cn", "geolocation-!cn@cn"},
 		GeositeProxiedGroups: []string{"geolocation-!cn"},
+		Proxy:                ForwardProxy{ProxyTimeout: DefaultProxyTimeout},
 	}
 }
 
@@ -142,6 +145,8 @@ func (c *Config) Clone() *Config {
 	}
 	d.GeositeDirectGroups = slices.Clone(c.GeositeDirectGroups)
 	d.GeositeProxiedGroups = slices.Clone(c.GeositeProxiedGroups)
+	d.TrustedPlugins = slices.Clone(c.TrustedPlugins)
+	d.Proxy.extra = maps.Clone(c.Proxy.extra)
 	d.extra = maps.Clone(c.extra)
 	return &d
 }
