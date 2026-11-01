@@ -1,0 +1,67 @@
+{
+  "version": "4.4.1.0",
+  "configs": [
+    {
+      "server": "1.2.3.4",
+      "server_port": 8388,
+      "password": "barfoo!",
+      "method": "chacha20-ietf-poly1305",
+      "plugin": "",
+      "plugin_opts": "",
+      "plugin_args": "",
+      "remarks": "Tokyo",
+      "group": "",
+      "timeout": 5
+    },
+    {
+      "server": "example.com",
+      "server_port": 443,
+      "password": "x",
+      "method": "aes-256-gcm",
+      "plugin": "v2ray-plugin",
+      "plugin_opts": "tls;host=example.com",
+      "plugin_args": "",
+      "remarks": "",
+      "group": "sub",
+      "timeout": 5
+    }
+  ],
+  "onlineConfigSource": ["https://example.com/sip008.json"],
+  "strategy": null,
+  "index": 1,
+  "global": false,
+  "enabled": true,
+  "shareOverLan": false,
+  "firstRun": false,
+  "localPort": 1080,
+  "portableMode": true,
+  "showPluginOutput": false,
+  "pacUrl": "",
+  "useOnlinePac": false,
+  "secureLocalPac": true,
+  "regeneratePacOnUpdate": true,
+  "autoCheckUpdate": true,
+  "checkPreRelease": false,
+  "skippedUpdateVersion": "",
+  "isVerboseLogging": false,
+  "isIPv6Enabled": false,
+  "generateLegacyUrl": false,
+  "geositeUrl": "",
+  "geositeSha256sumUrl": "",
+  "geositeDirectGroups": ["private", "cn", "geolocation-!cn@cn"],
+  "geositeProxiedGroups": ["geolocation-!cn"],
+  "geositePreferDirect": false,
+  "userAgent": "ShadowsocksWindows/$version",
+  "logViewer": {
+    "topMost": false, "wrapText": false, "toolbarShown": false,
+    "Font": "Consolas, 8pt", "BackgroundColor": "Black", "TextColor": "White"
+  },
+  "proxy": {
+    "useProxy": false, "proxyType": 0, "proxyServer": "", "proxyPort": 0,
+    "proxyTimeout": 3, "useAuth": false, "authUser": "", "authPwd": ""
+  },
+  "hotkey": {
+    "SwitchSystemProxy": "", "SwitchSystemProxyMode": "", "SwitchAllowLan": "",
+    "ShowLogs": "", "ServerMoveUp": "", "ServerMoveDown": "", "RegHotkeysAtStartup": false
+  }
+}
