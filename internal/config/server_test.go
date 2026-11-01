@@ -26,6 +26,8 @@ func TestValidate(t *testing.T) {
 		{"2022-256 not b64", func(s *Server) { s.Method, s.Password = "2022-blake3-aes-256-gcm", "not base64!" }, "password"},
 		{"2022-256 32B", func(s *Server) { s.Method, s.Password = "2022-blake3-aes-256-gcm", psk32 }, ""},
 		{"timeout -1", func(s *Server) { s.Timeout = -1 }, "timeout"},
+		{"timeout 21", func(s *Server) { s.Timeout = 21 }, "timeout"},
+		{"timeout 20", func(s *Server) { s.Timeout = 20 }, ""},
 		{"unknown method", func(s *Server) { s.Method = "rc4-md5" }, "method"},
 		{"none any password", func(s *Server) { s.Method, s.Password = "none", "" }, ""},
 	}

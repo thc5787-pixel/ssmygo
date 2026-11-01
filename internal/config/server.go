@@ -66,6 +66,10 @@ func (s Server) Title() string {
 	return s.Server + ":" + strconv.Itoa(s.ServerPort)
 }
 
+// MaxTimeout is the largest server timeout in seconds
+// (original Server.MaxServerTimeoutSec).
+const MaxTimeout = 20
+
 // FieldError is one validation problem; Field is the JSON field name.
 type FieldError struct{ Field, Msg string }
 
@@ -98,8 +102,8 @@ func (s Server) Validate() []FieldError {
 			errs = append(errs, FieldError{"password", fmt.Sprintf("Base64 key of %d bytes.", n)})
 		}
 	}
-	if s.Timeout < 0 {
-		errs = append(errs, FieldError{"timeout", "Seconds, 0 or more."})
+	if s.Timeout < 0 || s.Timeout > MaxTimeout {
+		errs = append(errs, FieldError{"timeout", "0–20 seconds."})
 	}
 	return errs
 }
