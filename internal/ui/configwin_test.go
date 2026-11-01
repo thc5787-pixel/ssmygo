@@ -252,3 +252,27 @@ func TestPluginServerNotWarned(t *testing.T) {
 		t.Fatal("plugin server not savable")
 	}
 }
+
+// Review Focus 3: the real window saves through run (off the main thread,
+// with the plugin trust dialog); while saving, OK/Apply do nothing more.
+func TestSaveGoesThroughRun(t *testing.T) {
+	cfg := sample()
+	cfg.Configs = cfg.Configs[:1]
+	w, s, tt := newWin(cfg, nil)
+	var pending func()
+	w.run = func(work func() error, done func(error)) { pending = func() { done(work()) } }
+	closed := false
+	w.OnClose(func() { closed = true })
+	tt.Click("OK")
+	if s.calls != 0 || pending == nil {
+		t.Fatalf("save ran on the caller: calls %d", s.calls)
+	}
+	tt.Frame()
+	tt.Click("OK") // still saving: ignored
+	tt.Click("Apply")
+	pending()
+	tt.Frame()
+	if s.calls != 1 || !closed {
+		t.Fatalf("calls %d closed %v", s.calls, closed)
+	}
+}

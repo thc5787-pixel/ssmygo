@@ -18,7 +18,6 @@ type ForwardWindow struct {
 	addr    string
 	port    string
 	timeout string
-	useAuth bool
 	user    string
 	pwd     string
 	saveErr string
@@ -28,7 +27,7 @@ type ForwardWindow struct {
 // NewForwardWindow edits a copy of initial.
 func NewForwardWindow(save func(config.ForwardProxy) error, initial config.ForwardProxy) *ForwardWindow {
 	w := &ForwardWindow{save: save, typ: "none", addr: initial.ProxyServer, timeout: strconv.Itoa(initial.ProxyTimeout),
-		useAuth: initial.UseAuth, user: initial.AuthUser, pwd: initial.AuthPwd}
+		user: initial.AuthUser, pwd: initial.AuthPwd}
 	if initial.ProxyPort != 0 {
 		w.port = strconv.Itoa(initial.ProxyPort)
 	}
@@ -51,7 +50,9 @@ func (w *ForwardWindow) close() {
 // come first, then config.ForwardProxy.Validate.
 func (w *ForwardWindow) proxy() (config.ForwardProxy, []config.FieldError) {
 	p := config.ForwardProxy{UseProxy: w.typ != "none", ProxyServer: strings.TrimSpace(w.addr),
-		UseAuth: w.useAuth, AuthUser: w.user, AuthPwd: w.pwd, ProxyType: config.ProxySOCKS5}
+		AuthUser: w.user, AuthPwd: w.pwd, ProxyType: config.ProxySOCKS5}
+	// As the original: using credentials follows from filling them in.
+	p.UseAuth = strings.TrimSpace(w.user) != "" || w.pwd != ""
 	if w.typ == "http" {
 		p.ProxyType = config.ProxyHTTP
 	}
@@ -65,6 +66,9 @@ func (w *ForwardWindow) proxy() (config.ForwardProxy, []config.FieldError) {
 		if p.UseProxy {
 			errs = append(errs, config.FieldError{Field: "proxyTimeout", Msg: "1–10 seconds."})
 		}
+	}
+	if p.UseProxy && (strings.TrimSpace(w.user) == "") != (w.pwd == "") {
+		errs = append(errs, config.FieldError{Field: "authPwd", Msg: "Enter both user name and password."})
 	}
 	for _, fe := range p.Validate() {
 		if !hasField(errs, fe.Field) {
@@ -100,10 +104,8 @@ func (w *ForwardWindow) View(c *mui.Context) {
 					mui.Field(c, T("resx.Timeout"), func() { mui.TextInput(c, &w.timeout).Disabled(off) }).Error(errMsg(errs, "proxyTimeout"))
 				})
 				mui.Fieldset(c, T("resx.CredentialsOptional"), func() {
-					mui.Field(c, "", func() { mui.Checkbox(c, &w.useAuth, T("resx.CredentialsOptional")).Disabled(off) })
-					noAuth := off || !w.useAuth
-					mui.Field(c, T("resx.Username"), func() { mui.TextInput(c, &w.user).Disabled(noAuth) }).Error(errMsg(errs, "authUser"))
-					mui.Field(c, T("Password"), func() { mui.TextInput(c, &w.pwd).Password().Disabled(noAuth) }).Error(errMsg(errs, "authPwd"))
+					mui.Field(c, T("resx.Username"), func() { mui.TextInput(c, &w.user).Disabled(off) }).Error(errMsg(errs, "authUser"))
+					mui.Field(c, T("Password"), func() { mui.TextInput(c, &w.pwd).Password().Disabled(off) }).Error(errMsg(errs, "authPwd"))
 				})
 			})
 		})

@@ -42,8 +42,8 @@ func TestForwardWindowDisabledStates(t *testing.T) {
 	}
 	tt.Click("Username")
 	tt.Type("u")
-	if w.user != "" {
-		t.Fatal("username editable without credentials")
+	if w.user != "u" {
+		t.Fatal("username not editable with SOCKS5")
 	}
 }
 
@@ -56,7 +56,7 @@ func TestForwardWindowValidation(t *testing.T) {
 	if len(*saved) != 0 || !tt.HasText("Required.") {
 		t.Fatalf("saved %v; texts %q", *saved, tt.Texts())
 	}
-	w.typ, w.addr, w.port, w.timeout, w.useAuth, w.user, w.pwd = "http", "proxy.corp", "3128", "5", true, "u", "p"
+	w.typ, w.addr, w.port, w.timeout, w.user, w.pwd = "http", "proxy.corp", "3128", "5", "u", "p"
 	closed := false
 	w.OnClose(func() { closed = true })
 	tt.Frame()
@@ -97,5 +97,24 @@ func TestForwardSnapshots(t *testing.T) {
 		f, _ := os.Create(filepath.Join(dir, name))
 		png.Encode(f, tt.Image())
 		f.Close()
+	}
+}
+
+// As the original: credentials are optional but must be given together, and
+// using them follows from filling them in (no separate checkbox).
+func TestForwardWindowCredentialsTogether(t *testing.T) {
+	w, saved, tt := newFwd(config.ForwardProxy{ProxyTimeout: 3})
+	w.typ, w.addr, w.port, w.user = "socks5", "h", "1080", "u"
+	tt.Frame()
+	tt.Click("Save")
+	tt.Frame()
+	if len(*saved) != 0 || !tt.HasText("Enter both user name and password.") {
+		t.Fatalf("saved %v texts %q", *saved, tt.Texts())
+	}
+	w.user = ""
+	tt.Frame()
+	tt.Click("Save")
+	if len(*saved) != 1 || (*saved)[0].UseAuth {
+		t.Fatalf("saved %+v", *saved)
 	}
 }

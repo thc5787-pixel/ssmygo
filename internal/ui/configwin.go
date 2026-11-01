@@ -116,7 +116,11 @@ type ConfigWindow struct {
 	port     string
 	portable bool
 	saveErr  string
-	portBusy bool   // the last save failed because port was taken
+	portBusy bool // the last save failed because port was taken
+	saving   bool // a save is in flight (run is asynchronous in the real window)
+	// run executes the save; nil = synchronously. The real window runs it off
+	// the main thread with the plugin trust dialog (runActionWith).
+	run      func(work func() error, done func(error))
 	busyPort string // the port text at that moment; editing it clears portBusy
 	onClose  func()
 }
@@ -175,26 +179,38 @@ func (w *ConfigWindow) valid() bool {
 	return true
 }
 
-// apply saves; it reports success.
-func (w *ConfigWindow) apply() bool {
-	if !w.valid() {
-		return false
+// apply saves through run (synchronous when nil); OK closes the window on
+// success. While a save is in flight, further OK/Apply clicks are ignored.
+func (w *ConfigWindow) apply(closeAfter bool) {
+	if !w.valid() || w.saving {
+		return
 	}
 	servers := make([]config.Server, len(w.servers))
 	for i, e := range w.servers {
 		servers[i] = e.result()
 	}
 	port, _ := strconv.Atoi(strings.TrimSpace(w.port))
-	if err := w.save(servers, w.sel, port, w.portable); err != nil {
-		w.saveErr = Message(err)
-		var busy *controller.PortInUseError
-		if errors.As(err, &busy) {
-			w.portBusy, w.busyPort = true, w.port
-		}
-		return false
+	portText := w.port
+	run := w.run
+	if run == nil {
+		run = func(work func() error, done func(error)) { done(work()) }
 	}
-	w.saveErr = ""
-	return true
+	w.saving = true
+	run(func() error { return w.save(servers, w.sel, port, w.portable) }, func(err error) {
+		w.saving = false
+		if err != nil {
+			w.saveErr = Message(err)
+			var busy *controller.PortInUseError
+			if errors.As(err, &busy) {
+				w.portBusy, w.busyPort = true, portText
+			}
+			return
+		}
+		w.saveErr = ""
+		if closeAfter {
+			w.close()
+		}
+	})
 }
 
 // mbtn is a button with an Alt+key mnemonic placed in the bottom grid.
@@ -212,7 +228,7 @@ func (w *ConfigWindow) View(c *mui.Context) {
 	w.list.Selected = &w.sel
 	w.list.Label = func(i int) string { return w.title(i) }
 	valid := w.sel >= 0 && w.sel < len(w.servers)
-	canSave := w.valid()
+	canSave := w.valid() && !w.saving
 
 	if c.Shortcut(0, mui.KeyEscape) {
 		w.close()
@@ -307,14 +323,14 @@ func (w *ConfigWindow) View(c *mui.Context) {
 				w.sel++
 			}
 			ok := mui.PrimaryButton(c, T("OK")).MinWidth(btnW).Disabled(!canSave).RowStart(3).ColumnStart(4).JustifySelf(mui.End)
-			if (ok.Clicked() || (canSave && c.Shortcut(0, mui.KeyEnter))) && w.apply() {
-				w.close()
+			if ok.Clicked() || (canSave && c.Shortcut(0, mui.KeyEnter)) {
+				w.apply(true)
 			}
 			if mui.Button(c, T("Cancel")).MinWidth(btnW).RowStart(3).ColumnStart(5).Clicked() {
 				w.close()
 			}
 			if mui.Button(c, T("Apply")).MinWidth(btnW).Disabled(!canSave).RowStart(3).ColumnStart(6).Clicked() {
-				w.apply()
+				w.apply(false)
 			}
 		})
 	})
@@ -346,6 +362,11 @@ func OpenConfigWindow(ctrl *controller.Controller) {
 		Title: i18n.T("Edit Servers"), Width: 582, Height: 620, MinWidth: 582, MinHeight: 620,
 		Content: mui.View(w.View),
 	})
+	// Save off the main thread (a plugin may take seconds to start) and ask
+	// before running an untrusted plugin; results return on the main thread.
+	w.run = func(work func() error, done func(error)) {
+		runActionWith(ctrl.TrustPlugin, nil, work, func(err error) { win.Update(func() { done(err) }) })
+	}
 	w.OnClose(win.Close)
 	win.OnClosed(func() { configWin, configView = nil, nil })
 	configWin, configView = win, w
