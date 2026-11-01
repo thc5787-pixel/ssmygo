@@ -1,0 +1,31 @@
+{
+  "servers": [
+    {
+      "name": "local",
+      "protocol": "mixed",
+      "tcpListeners": [
+        {
+          "network": "tcp",
+          "address": "127.0.0.1:1080"
+        }
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "name": "direct",
+      "protocol": "direct",
+      "enableTCP": true
+    },
+    {
+      "name": "proxy",
+      "protocol": "2022-blake3-aes-128-gcm",
+      "endpoint": "ss.example.com:8388",
+      "enableTCP": true,
+      "psk": "AAECAwQFBgcICQoLDA0ODw=="
+    }
+  ],
+  "router": {
+    "defaultTCPClientName": "proxy"
+  }
+}

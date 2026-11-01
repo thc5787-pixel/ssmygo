@@ -1,0 +1,74 @@
+{
+  "servers": [
+    {
+      "name": "local",
+      "protocol": "mixed",
+      "tcpListeners": [
+        {
+          "network": "tcp",
+          "address": "0.0.0.0:2080"
+        }
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "name": "direct",
+      "protocol": "direct",
+      "enableTCP": true
+    },
+    {
+      "name": "proxy",
+      "protocol": "chacha20-ietf-poly1305",
+      "endpoint": "ss.example.com:8388",
+      "enableTCP": true,
+      "password": "pw"
+    }
+  ],
+  "domainSets": [
+    {
+      "name": "direct",
+      "type": "gob",
+      "path": "C:\\data\\cache\\domainsets\\direct.gob"
+    },
+    {
+      "name": "proxied",
+      "type": "gob",
+      "path": "C:\\data\\cache\\domainsets\\proxied.gob"
+    }
+  ],
+  "router": {
+    "defaultTCPClientName": "proxy",
+    "routes": [
+      {
+        "name": "private",
+        "client": "direct",
+        "toPrefixes": [
+          "10.0.0.0/8",
+          "172.16.0.0/12",
+          "192.168.0.0/16",
+          "127.0.0.0/8",
+          "169.254.0.0/16",
+          "::1/128",
+          "fc00::/7",
+          "fe80::/10"
+        ],
+        "disableNameResolutionForIPRules": true
+      },
+      {
+        "name": "direct",
+        "client": "direct",
+        "toDomainSets": [
+          "direct"
+        ]
+      },
+      {
+        "name": "proxied",
+        "client": "proxy",
+        "toDomainSets": [
+          "proxied"
+        ]
+      }
+    ]
+  }
+}
