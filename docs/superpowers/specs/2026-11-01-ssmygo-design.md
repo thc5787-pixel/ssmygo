@@ -71,7 +71,7 @@ ssmygo/
     logx/          logx.go（slog → 文件，带大小轮转）
   third_party/shadowsocks-go/   vendor 自 65ba171
   third_party/PATCHES.md        补丁清单
-  assets/          dlc.dat.gz（v2fly，MIT）  图标（原版，GPLv3，可并入 AGPL）
+  assets/          dlc.dat.gz（v2fly，MIT）  shadowsocks.svg（用户提供，程序图标和托盘图标的来源）
   docs/
   mygo.json  go.mod（replace github.com/database64128/shadowsocks-go => ./third_party/shadowsocks-go）
   LICENSE（AGPL-3.0）
@@ -205,7 +205,7 @@ func (c *Controller) Shutdown()                      // 恢复系统代理 → r
 ### 4.6 ui：托盘和窗口
 
 **托盘（`tray.go`）**
-- 图标：原版的三种状态图标（禁用 / PAC / 全局），根据 `State.Mode` 切换；P1 再加流量角标。
+- 图标：由用户提供的 `assets/shadowsocks.svg` 生成（描边加粗到 2.5）。程序图标 `resources/icon.png` 为 1024px 蓝色 `#197DBF`；托盘图标为 32px，3 种模式 × 浅色/深色任务栏，共 6 张 PNG，在开发期通过 `go generate` 预先渲染并嵌入。颜色沿用原版 `SelectColorMask` 的含义：全局蓝色；PAC 在浅色任务栏上深灰、深色任务栏上白色；禁用为灰色。通过 `Tray.Dark()` 和 `OnAppearanceChange` 跟随任务栏深浅色。P1 再加流量角标。
 - 提示文字：`ssmygo <版本>\n<服务器名>\n<模式>`，有错误时加一行 `⚠ <LastError>`。
 - 左键单击：打开编辑服务器窗口（与原版一致）。右键单击：`SetMenu` → `PopUpMenu` → `SetMenu(nil)`（spike 已验证）。
 - P0 菜单（原版附录 A 的子集，文案来自 resx）：
