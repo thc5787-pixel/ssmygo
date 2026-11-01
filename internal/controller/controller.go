@@ -218,7 +218,7 @@ func (c *Controller) setSys(s sysproxy.Settings) error {
 // applyCore rebuilds the core for cfg. A listen failure becomes a
 // *PortInUseError.
 func (c *Controller) applyCore(cfg *config.Config) error {
-	sc, err := core.Build(cfg, c.rules)
+	sc, err := core.Build(cfg, c.rules, 0)
 	if err != nil && !errors.Is(err, core.ErrNoServer) {
 		return err
 	}

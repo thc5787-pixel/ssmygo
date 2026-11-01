@@ -10,7 +10,9 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -139,7 +141,7 @@ func TestRunnerEndToEnd(t *testing.T) {
 			cfg.LocalPort = freePort(t)
 			cfg.Global = true
 			cfg.Configs = []config.Server{{Server: u.addr.Addr().String(), ServerPort: int(u.addr.Port()), Method: u.method, Password: u.password}}
-			sc, err := Build(cfg, nil)
+			sc, err := Build(cfg, nil, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -161,14 +163,14 @@ func TestRunnerApplyBusyPort(t *testing.T) {
 	defer ln.Close()
 	cfg := config.Default()
 	cfg.LocalPort = ln.Addr().(*net.TCPAddr).Port
-	sc, _ := Build(cfg, nil)
+	sc, _ := Build(cfg, nil, 0)
 	r := NewRunner(quietLogger())
 	defer r.Stop()
 	if err := r.Apply(sc); err == nil || !strings.Contains(err.Error(), "bind") {
 		t.Fatalf("err = %v", err)
 	}
 	cfg.LocalPort = freePort(t)
-	sc, _ = Build(cfg, nil)
+	sc, _ = Build(cfg, nil, 0)
 	if err := r.Apply(sc); err != nil {
 		t.Fatalf("apply on free port after failure: %v", err)
 	}
@@ -181,7 +183,7 @@ func TestRunnerReapply(t *testing.T) {
 	r := NewRunner(quietLogger())
 	defer r.Stop()
 	for i := 0; i < 3; i++ {
-		sc, _ := Build(cfg, nil) // ErrNoServer: direct only
+		sc, _ := Build(cfg, nil, 0) // ErrNoServer: direct only
 		if err := r.Apply(sc); err != nil {
 			t.Fatalf("apply #%d: %v", i, err)
 		}
@@ -202,7 +204,7 @@ func TestRunnerAppliesRulesMode(t *testing.T) {
 	cfg.LocalPort = freePort(t)
 	cfg.Enabled = true
 	cfg.Configs = []config.Server{{Server: up.Addr().String(), ServerPort: int(up.Port()), Method: "aes-256-gcm", Password: "pw"}}
-	sc, err := Build(cfg, &rs)
+	sc, err := Build(cfg, &rs, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,4 +216,77 @@ func TestRunnerAppliesRulesMode(t *testing.T) {
 	if err := socksEcho(cfg.LocalPort, echoServer(t), "rules"); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// Connections to the SS server go through the forward proxy.
+func TestRunnerThroughForward(t *testing.T) {
+	up := aeadtest.Start(t, "aes-256-gcm", "pw")
+	hop := ssgoSOCKS5(t)
+	var n atomic.Int32
+	relay := countingRelay(t, hop, &n)
+	host, portStr, _ := net.SplitHostPort(relay)
+	port, _ := strconv.Atoi(portStr)
+	cfg := config.Default()
+	cfg.LocalPort = freePort(t)
+	cfg.Global = true
+	cfg.Configs = []config.Server{{Server: up.Addr().String(), ServerPort: int(up.Port()), Method: "aes-256-gcm", Password: "pw"}}
+	cfg.Proxy = config.ForwardProxy{UseProxy: true, ProxyType: config.ProxySOCKS5, ProxyServer: host, ProxyPort: port, ProxyTimeout: 3}
+	sc, err := Build(cfg, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewRunner(quietLogger())
+	defer r.Stop()
+	if err := r.Apply(sc); err != nil {
+		t.Fatal(err)
+	}
+	if err := socksEcho(cfg.LocalPort, echoServer(t), "via forward"); err != nil {
+		t.Fatal(err)
+	}
+	if n.Load() < 1 {
+		t.Fatal("did not go through the forward proxy")
+	}
+}
+
+func ssgoSOCKS5(t *testing.T) string {
+	t.Helper()
+	addr := fmt.Sprintf("127.0.0.1:%d", freePort(t))
+	var sc service.Config
+	json.Unmarshal([]byte(`{"servers":[{"name":"hop","protocol":"socks5","tcpListeners":[{"network":"tcp","address":"`+addr+`"}]}],
+		"clients":[{"name":"direct","protocol":"direct","enableTCP":true}]}`), &sc)
+	m, err := sc.NewManager(quietLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { m.Stop(); m.Close() })
+	return addr
+}
+
+func countingRelay(t *testing.T, dst string, n *atomic.Int32) string {
+	t.Helper()
+	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			n.Add(1)
+			go func() {
+				defer c.Close()
+				d, err := net.Dial("tcp", dst)
+				if err != nil {
+					return
+				}
+				defer d.Close()
+				go io.Copy(d, c)
+				io.Copy(c, d)
+			}()
+		}
+	}()
+	return ln.Addr().String()
 }

@@ -8,15 +8,19 @@ import (
 	"fmt"
 	"net/netip"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/domainset"
+	"github.com/database64128/shadowsocks-go/jsoncfg"
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/service"
 	"github.com/thc5787/ssmygo/internal/config"
 	"github.com/thc5787/ssmygo/internal/core/mixed"
 	"github.com/thc5787/ssmygo/internal/rules"
 
+	"github.com/thc5787/ssmygo/internal/core/forward"
 	_ "github.com/thc5787/ssmygo/internal/core/legacyaead" // registers legacy AEAD clients
 )
 
@@ -25,9 +29,10 @@ import (
 var ErrNoServer = errors.New("core: no server configured")
 
 const (
-	serverName = "local"
-	proxyName  = "proxy"
-	directName = "direct"
+	serverName  = "local"
+	proxyName   = "proxy"
+	directName  = "direct"
+	forwardName = "forward"
 )
 
 // privatePrefixes always go direct in rules mode.
@@ -43,7 +48,10 @@ var privatePrefixes = []netip.Prefix{
 }
 
 // Build translates cfg. rs nil means rules are unavailable: behave as global.
-func Build(cfg *config.Config, rs *rules.Result) (*service.Config, error) {
+// pluginPort > 0 means the current server runs through its SIP003 plugin
+// listening on 127.0.0.1:pluginPort; the forward proxy then does not apply
+// (A1-D3). Otherwise an enabled forward proxy carries the server connection.
+func Build(cfg *config.Config, rs *rules.Result, pluginPort int) (*service.Config, error) {
 	host := "127.0.0.1"
 	if cfg.ShareOverLan {
 		host = "0.0.0.0"
@@ -65,9 +73,20 @@ func Build(cfg *config.Config, rs *rules.Result) (*service.Config, error) {
 	if !ok || len(srv.Validate()) > 0 {
 		return sc, ErrNoServer
 	}
+	if pluginPort > 0 {
+		srv.Server, srv.ServerPort = "127.0.0.1", pluginPort
+	}
 	proxy, err := proxyClient(srv)
 	if err != nil {
 		return sc, fmt.Errorf("%w: %v", ErrNoServer, err)
+	}
+	if pluginPort == 0 && cfg.Proxy.UseProxy {
+		fc, err := forwardClient(cfg.Proxy)
+		if err != nil {
+			return sc, err
+		}
+		sc.Clients = append(sc.Clients, fc) // must precede the client dialing through it
+		proxy.DialerClient = forwardName
 	}
 	sc.Clients = append(sc.Clients, proxy)
 
@@ -106,6 +125,35 @@ func proxyClient(s config.Server) (service.ClientConfig, error) {
 		}
 	case s.Method != "none":
 		c.Password = s.Password
+	}
+	return c, nil
+}
+
+// forwardClient is the forward proxy hop (original "Forward Proxy").
+func forwardClient(p config.ForwardProxy) (service.ClientConfig, error) {
+	if errs := p.Validate(); len(errs) > 0 {
+		return service.ClientConfig{}, fmt.Errorf("forward proxy: %w", errs[0])
+	}
+	ep, err := conn.AddrFromHostPort(strings.TrimSpace(p.ProxyServer), uint16(p.ProxyPort))
+	if err != nil {
+		return service.ClientConfig{}, fmt.Errorf("forward proxy: %w", err)
+	}
+	c := service.ClientConfig{
+		Name:        forwardName,
+		Protocol:    forward.ProtocolSOCKS5,
+		Endpoint:    ep,
+		EnableTCP:   true,
+		DialTimeout: jsoncfg.Duration(time.Duration(p.ProxyTimeout) * time.Second),
+	}
+	if p.ProxyType == config.ProxyHTTP {
+		c.Protocol = forward.ProtocolHTTP
+		c.HTTP.UseBasicAuth = p.UseAuth
+		if p.UseAuth {
+			c.HTTP.Username, c.HTTP.Password = p.AuthUser, p.AuthPwd
+		}
+	} else if p.UseAuth {
+		c.Socks5.EnableUserPassAuth = true
+		c.Socks5.Username, c.Socks5.Password = p.AuthUser, p.AuthPwd
 	}
 	return c, nil
 }
