@@ -73,7 +73,11 @@ func Tooltip(s controller.State, version string) string {
 		lines = append(lines, T("System Proxy On: ")+T("Global"))
 	}
 	if s.LastError != "" {
-		lines = append(lines, "⚠ "+s.LastError)
+		msg := s.LastError
+		if s.Err != nil {
+			msg = Message(s.Err)
+		}
+		lines = append(lines, "⚠ "+msg)
 	}
 	tip := strings.Join(lines, "\n")
 	if r := []rune(tip); len(r) > 127 { // Windows notification-area limit
@@ -100,7 +104,7 @@ func RunTray(ctrl *controller.Controller, version string, logger *slog.Logger) e
 	}
 	report := func(err error) {
 		if err != nil {
-			Notify(logger, err.Error())
+			Notify(logger, Message(err))
 		}
 	}
 	var menu *mygo.Menu
@@ -113,11 +117,14 @@ func RunTray(ctrl *controller.Controller, version string, logger *slog.Logger) e
 			for _, e := range errs {
 				logger.Warn("import", "err", e)
 			}
-			if added == 0 && len(errs) == 0 {
+			if len(added) == 0 && len(errs) == 0 {
 				Notify(logger, i18n.T("ssmygo.noLinks"))
 				return
 			}
-			Notify(logger, fmt.Sprintf(i18n.T("ssmygo.imported"), added, len(errs)))
+			if len(added) > 0 {
+				appendToOpenConfigWindow(added) // deferred #7
+			}
+			Notify(logger, fmt.Sprintf(i18n.T("ssmygo.imported"), len(added), len(errs)))
 		},
 		Quit:      mygo.App.Quit,
 		ToggleLAN: func(on bool) { report(ctrl.SetShareLAN(on)) },

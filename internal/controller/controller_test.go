@@ -327,9 +327,9 @@ func TestImportURLs(t *testing.T) {
 	e.writeConfig(nil)
 	c := e.start()
 	text := "ss://YWVzLTI1Ni1nY206cGFzc0AxMjcuMC4wLjE6ODA4OA#a\nss://!!!\nss://Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTpwYXNz@1.2.3.4:8388#b"
-	added, errs := c.ImportURLs(text)
-	if added != 2 || len(errs) != 1 {
-		t.Fatalf("added %d errs %v", added, errs)
+	added, errs := c.ImportURLs(text) // deferred #7: returns the servers added
+	if len(added) != 2 || len(errs) != 1 || added[1].Remarks != "b" {
+		t.Fatalf("added %+v errs %v", added, errs)
 	}
 	d := e.diskConfig()
 	if len(d.Configs) != 3 || d.Index != 0 || d.Configs[2].Remarks != "b" {
@@ -547,4 +547,135 @@ func (e *env) newOnly() *Controller {
 	}
 	e.t.Cleanup(c.runner.Stop)
 	return c
+}
+
+// Deferred #2: the old portable file keeps no servers or passwords, the
+// switch back removes the roaming copy, and both resolve correctly.
+func TestPortableSwitchLeavesOnlyMarker(t *testing.T) {
+	e := newEnv(t)
+	e.writeConfig(nil)
+	c := e.start()
+	if err := c.SaveServers([]config.Server{e.server()}, 0, c.State().Port, false); err != nil {
+		t.Fatal(err)
+	}
+	old, _ := os.ReadFile(filepath.Join(e.portable, "gui-config.json"))
+	if strings.Contains(string(old), `"configs"`) || strings.Contains(string(old), "pw") {
+		t.Fatalf("exe-dir file still holds servers: %s", old)
+	}
+	if err := c.SaveServers([]config.Server{e.server()}, 0, c.State().Port, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(e.roaming, "gui-config.json")); !os.IsNotExist(err) {
+		t.Fatal("roaming copy left behind after switching back")
+	}
+	if got := config.ResolveRoot(e.portable, filepath.Dir(e.roaming)); got != e.portable {
+		t.Fatalf("resolves to %s", got)
+	}
+	back, _ := config.Load(filepath.Join(e.portable, "gui-config.json"))
+	if len(back.Configs) != 1 || !back.PortableMode {
+		t.Fatalf("portable config %+v", back)
+	}
+}
+
+// Deferred #2: if the new location cannot be written, nothing moves.
+func TestPortableSwitchSaveFailureKeepsOld(t *testing.T) {
+	e := newEnv(t)
+	e.writeConfig(nil)
+	os.MkdirAll(filepath.Dir(e.roaming), 0o755)
+	os.WriteFile(e.roaming, []byte("a file where the directory should be"), 0o644)
+	c := e.start()
+	before, _ := os.ReadFile(filepath.Join(e.portable, "gui-config.json"))
+	if err := c.SaveServers([]config.Server{e.server()}, 0, c.State().Port, false); err == nil {
+		t.Fatal("switch succeeded although the roaming dir is unwritable")
+	}
+	after, _ := os.ReadFile(filepath.Join(e.portable, "gui-config.json"))
+	if string(before) != string(after) || !c.Config().PortableMode {
+		t.Fatalf("old config changed or mode flipped")
+	}
+}
+
+// Deferred #3: an invalid server that was already there and is unchanged
+// does not block other edits; a new invalid one does.
+func TestSaveServersKeepsUnchangedInvalid(t *testing.T) {
+	e := newEnv(t)
+	legacy := e.server()
+	legacy.Method, legacy.Remarks = "aes-256-cfb", "old"
+	e.writeConfig(func(c *config.Config) { c.Configs = append(c.Configs, legacy) })
+	c := e.start()
+	servers := c.Config().Configs
+	if err := c.SaveServers(servers, 0, freePort(t), true); err != nil {
+		t.Fatalf("port change blocked by an untouched invalid server: %v", err)
+	}
+	fresh := legacy
+	fresh.Remarks = "edited"
+	if err := c.SaveServers(append(servers, fresh), 0, c.State().Port, true); err == nil {
+		t.Fatal("a new invalid server was accepted")
+	}
+}
+
+// Plugins are P1: such a server cannot carry traffic yet.
+func TestPluginServerNotUsable(t *testing.T) {
+	e := newEnv(t)
+	e.writeConfig(func(c *config.Config) { c.Configs[0].Plugin = "v2ray-plugin" })
+	c := e.start()
+	if err := c.SetMode(Rules); !errors.Is(err, ErrPluginUnsupported) || len(e.sys.Calls) != 0 {
+		t.Fatalf("err %v calls %v", err, e.sys.Calls)
+	}
+}
+
+// Deferred #4: errors are typed so the UI can translate them.
+func TestPortInUseErrorTyped(t *testing.T) {
+	e := newEnv(t)
+	e.writeConfig(nil)
+	c := e.start()
+	busy, _ := net.Listen("tcp", "127.0.0.1:0")
+	defer busy.Close()
+	port := busy.Addr().(*net.TCPAddr).Port
+	err := c.SaveServers([]config.Server{e.server()}, 0, port, true)
+	var pe *PortInUseError
+	if !errors.As(err, &pe) || pe.Port != port {
+		t.Fatalf("err %T %v", err, err)
+	}
+	if !errors.As(c.State().Err, &pe) {
+		t.Fatalf("State().Err = %v", c.State().Err)
+	}
+}
+
+// Deferred #5: a VPN entry failing is a warning; the change stands and
+// Disable still restores the user's proxy.
+func TestPartialSysproxyIsWarning(t *testing.T) {
+	e := newEnv(t)
+	e.writeConfig(nil)
+	c := e.start()
+	e.sys.SetErr = &sysproxy.PartialError{Failed: map[string]error{"VPN": errors.New("denied")}}
+	if err := c.SetMode(Rules); err != nil {
+		t.Fatalf("partial failure rejected the change: %v", err)
+	}
+	if c.State().Mode != Rules {
+		t.Fatalf("mode %v", c.State().Mode)
+	}
+	e.sys.SetErr = nil
+	c.SetMode(Disabled)
+	if e.sys.Cur != userProxy {
+		t.Fatalf("restore %+v", e.sys.Cur)
+	}
+}
+
+// Deferred #8④: subscribers run after the lock is released, so they may
+// call back into the controller.
+func TestSubscriberMayCallController(t *testing.T) {
+	e := newEnv(t)
+	e.writeConfig(nil)
+	c := e.start()
+	c.Subscribe(func(State) { _ = c.State() })
+	done := make(chan error, 1)
+	go func() { done <- c.SetShareLAN(true) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("deadlock: subscriber called State() under the controller lock")
+	}
 }

@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -73,9 +74,9 @@ func main() {
 			return
 		}
 		if err := ctrl.Start(); err != nil {
-			ui.Notify(logger, err.Error()) // tray tooltip shows it too; user can fix the port
+			ui.Notify(logger, fmt.Sprintf(i18n.T("ssmygo.startFailed"), ui.Message(err))) // tray tooltip shows it too; user can fix the port
 		} else if s := ctrl.State(); s.LastError != "" {
-			ui.Notify(logger, s.LastError)
+			ui.Notify(logger, ui.Message(s.Err))
 		}
 		if s := ctrl.State(); (s.FirstRun || !s.HasServer()) && !mygo.App.WasOpenedAtLogin() {
 			ui.OpenConfigWindow(ctrl)

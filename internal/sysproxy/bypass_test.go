@@ -1,6 +1,7 @@
 package sysproxy
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -58,3 +59,18 @@ func TestFakeRecordsCalls(t *testing.T) {
 }
 
 func itoa(i int) string { return string(rune('0'+i/10)) + string(rune('0'+i%10)) }
+
+// Deferred #5: a failure on some VPN/dial-up entries is partial — the LAN
+// setting applied — and must be distinguishable from a real failure.
+func TestPartialError(t *testing.T) {
+	var err error = &PartialError{Failed: map[string]error{"Work VPN": ErrUnsupported}}
+	var pe *PartialError
+	if !errors.As(err, &pe) || !strings.Contains(err.Error(), "Work VPN") {
+		t.Fatalf("err %v", err)
+	}
+	f := &Fake{SetErr: err}
+	f.Set(LocalSettings(1, ""))
+	if f.Cur.Server != "127.0.0.1:1" {
+		t.Fatal("Fake must apply the LAN setting on a partial error, as Windows does")
+	}
+}

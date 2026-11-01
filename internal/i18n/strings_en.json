@@ -40,6 +40,7 @@
   "ssmygo.imported": "Imported %d, failed %d.",
   "ssmygo.noLinks": "No ss:// links found in the clipboard.",
   "ssmygo.noServer": "Add a server first.",
+  "ssmygo.pluginUnsupported": "Plugins are not supported in this version.",
   "ssmygo.portInUse": "Port %d is in use by another program.",
   "ssmygo.startFailed": "ssmygo could not start the proxy: %s"
 }

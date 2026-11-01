@@ -10,6 +10,7 @@ import (
 
 	mui "github.com/egoist/mygo/ui"
 	"github.com/thc5787/ssmygo/internal/config"
+	"github.com/thc5787/ssmygo/internal/controller"
 )
 
 type saved struct {
@@ -74,7 +75,8 @@ func TestAddDeleteMove(t *testing.T) {
 
 func TestValidationBlocksOK(t *testing.T) {
 	w, s, tt := newWin(sample(), nil)
-	w.sel = 1 // SS2022 server with empty password
+	w.sel = 1                                  // SS2022 server with empty password
+	w.servers[1].Password = "still-not-base64" // edited, so it must block (deferred #3)
 	tt.Frame()
 	if !tt.HasText("Base64 key of 32 bytes.") {
 		t.Fatalf("error not shown; texts %q", tt.Texts())
@@ -180,5 +182,73 @@ func TestSnapshots(t *testing.T) {
 		f, _ := os.Create(filepath.Join(dir, name))
 		png.Encode(f, tt.Image())
 		f.Close()
+	}
+}
+
+// Deferred #3: an invalid server the user did not touch stays red but does
+// not block saving other changes; it is passed back unchanged.
+func TestUnchangedInvalidDoesNotBlockOK(t *testing.T) {
+	w, s, tt := newWin(sample(), nil) // server 1: SS2022 with an empty key, untouched
+	w.port = "2080"
+	tt.Frame()
+	if err := tt.Click("OK"); err != nil {
+		t.Fatal(err)
+	}
+	if s.calls != 1 || s.port != 2080 {
+		t.Fatalf("save not called: %+v", s)
+	}
+	if !reflect.DeepEqual(s.servers[1], sample().Configs[1]) {
+		t.Fatalf("untouched server altered: %+v", s.servers[1])
+	}
+}
+
+// Deferred #4: a busy port is explained in the user's language and the
+// port box is marked until the port is edited.
+func TestPortInUseShownTranslated(t *testing.T) {
+	cfg := sample()
+	cfg.Configs = cfg.Configs[:1]
+	w, _, tt := newWin(cfg, &controller.PortInUseError{Port: 1080, Err: errors.New("bind")})
+	tt.Click("OK")
+	tt.Frame()
+	if !tt.HasText("Port 1080 is in use by another program.") || !w.portBusy {
+		t.Fatalf("portBusy %v texts %q", w.portBusy, tt.Texts())
+	}
+	w.port = "1081"
+	tt.Frame()
+	if w.portBusy {
+		t.Fatal("port mark not cleared after editing the port")
+	}
+}
+
+// Deferred #7: servers imported from the tray while the window is open are
+// merged into it and saved with OK.
+func TestAppendServers(t *testing.T) {
+	cfg := sample()
+	cfg.Configs = cfg.Configs[:1]
+	w, s, tt := newWin(cfg, nil)
+	w.AppendServers([]config.Server{{Server: "9.9.9.9", ServerPort: 443, Method: "aes-256-gcm", Password: "p", Remarks: "imported", Timeout: 5}})
+	tt.Frame()
+	if !tt.HasText("imported") {
+		t.Fatal("imported server not listed")
+	}
+	tt.Click("OK")
+	if len(s.servers) != 2 || s.servers[1].Remarks != "imported" {
+		t.Fatalf("saved %+v", s.servers)
+	}
+}
+
+// Plugins are P1: say so instead of letting the user think it will connect.
+func TestPluginServerWarned(t *testing.T) {
+	cfg := sample()
+	cfg.Configs = cfg.Configs[:1]
+	cfg.Configs[0].Plugin = "v2ray-plugin"
+	_, s, tt := newWin(cfg, nil)
+	tt.Frame()
+	if !tt.HasText("Plugins are not supported in this version.") {
+		t.Fatalf("no plugin warning; texts %q", tt.Texts())
+	}
+	tt.Click("OK")
+	if s.calls != 1 {
+		t.Fatal("a plugin server must still be savable")
 	}
 }

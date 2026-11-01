@@ -4,6 +4,7 @@ package sysproxy
 
 import (
 	"errors"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -48,4 +49,19 @@ func PointsTo(s Settings, port int) bool {
 		}
 	}
 	return false
+}
+
+// PartialError means the LAN setting was applied but some dial-up/VPN
+// entries failed. Callers treat it as a warning, not a failed change.
+type PartialError struct {
+	Failed map[string]error // entry name → error
+}
+
+func (e *PartialError) Error() string {
+	names := make([]string, 0, len(e.Failed))
+	for n := range e.Failed {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return "sysproxy: could not update " + strings.Join(names, ", ")
 }

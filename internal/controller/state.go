@@ -19,7 +19,8 @@ type State struct {
 	Servers   []string // menu titles
 	Current   int
 	ShareLAN  bool
-	LastError string
+	LastError string // Err.Error(), for display
+	Err       error  // typed: see PortInUseError, ErrNoServer, SaveError
 	Port      int
 	FirstRun  bool
 }

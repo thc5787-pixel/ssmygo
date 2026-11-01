@@ -95,19 +95,28 @@ func takeString(v uint64) string {
 
 // Set applies s to the LAN connection and every dial-up/VPN entry, then
 // tells running programs to reload.
+// A LAN failure is an error; failures on dial-up/VPN entries only are
+// reported as *PartialError after the rest was applied.
 func (w winProxy) Set(s Settings) error {
-	conns := []string{""}
-	names, err := rasEntries()
-	if err == nil {
-		conns = append(conns, names...)
+	if err := setOne("", s); err != nil {
+		return err
 	}
-	for _, c := range conns {
-		if err := setOne(c, s); err != nil {
-			return err
+	var partial *PartialError
+	if names, err := rasEntries(); err == nil {
+		for _, name := range names {
+			if err := setOne(name, s); err != nil {
+				if partial == nil {
+					partial = &PartialError{Failed: map[string]error{}}
+				}
+				partial.Failed[name] = err
+			}
 		}
 	}
 	procSetOption.Call(0, optSettingsChanged, 0, 0)
 	procSetOption.Call(0, optRefresh, 0, 0)
+	if partial != nil {
+		return partial
+	}
 	return nil
 }
 

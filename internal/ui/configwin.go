@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 
@@ -14,23 +15,47 @@ import (
 // SaveFunc applies the edited servers (controller.SaveServers).
 type SaveFunc func(servers []config.Server, index, port int, portable bool) error
 
-// editServer is one server as the form edits it: numbers as text.
-type editServer struct {
+// formFields are what the form edits, numbers as text; comparable, so a
+// server can be told apart from its state when the window opened.
+type formFields struct {
 	Server, Port, Password, Method, Plugin, PluginOpts, PluginArgs, Remarks, Timeout, Group string
 	NeedArgs                                                                                bool
-	orig                                                                                    config.Server // keeps unknown JSON fields
+}
+
+// editServer is one server in the window.
+type editServer struct {
+	formFields
+	base  formFields    // as loaded: unchanged servers are passed back untouched
+	isNew bool          // added in this window
+	orig  config.Server // keeps unknown JSON fields
 }
 
 func fromServer(s config.Server) editServer {
-	return editServer{
+	f := formFields{
 		Server: s.Server, Port: strconv.Itoa(s.ServerPort), Password: s.Password, Method: s.Method,
 		Plugin: s.Plugin, PluginOpts: s.PluginOpts, PluginArgs: s.PluginArgs, Remarks: s.Remarks,
-		Timeout: strconv.Itoa(s.Timeout), Group: s.Group, NeedArgs: s.PluginArgs != "", orig: s,
+		Timeout: strconv.Itoa(s.Timeout), Group: s.Group, NeedArgs: s.PluginArgs != "",
 	}
+	return editServer{formFields: f, base: f, orig: s}
 }
 
 func newEditServer() editServer {
-	return fromServer(config.Server{ServerPort: 8388, Method: config.DefaultMethod, Timeout: config.DefaultTimeout})
+	e := fromServer(config.Server{ServerPort: 8388, Method: config.DefaultMethod, Timeout: config.DefaultTimeout})
+	e.isNew = true
+	return e
+}
+
+// dirty reports whether the user added or changed this server.
+func (e editServer) dirty() bool { return e.isNew || e.formFields != e.base }
+
+// result is what OK saves: the loaded server itself when untouched, so an
+// invalid server from an old config survives unchanged (deferred #3).
+func (e editServer) result() config.Server {
+	if !e.dirty() {
+		return e.orig
+	}
+	s, _ := e.server()
+	return s
 }
 
 // server converts the form back, with every validation error.
@@ -91,7 +116,17 @@ type ConfigWindow struct {
 	port     string
 	portable bool
 	saveErr  string
+	portBusy bool   // the last save failed because port was taken
+	busyPort string // the port text at that moment; editing it clears portBusy
 	onClose  func()
+}
+
+// AppendServers adds servers imported while the window is open, so OK does
+// not drop them (deferred #7). They are already saved, so not "new".
+func (w *ConfigWindow) AppendServers(servers []config.Server) {
+	for _, s := range servers {
+		w.servers = append(w.servers, fromServer(s))
+	}
 }
 
 // NewConfigWindow edits a copy of initial.
@@ -123,12 +158,16 @@ func (w *ConfigWindow) portErr() string {
 	return ""
 }
 
-// valid reports whether every server and the port validate.
+// valid reports whether the port and every added or changed server
+// validate; untouched invalid servers do not block saving (deferred #3).
 func (w *ConfigWindow) valid() bool {
 	if w.portErr() != "" {
 		return false
 	}
 	for _, e := range w.servers {
+		if !e.dirty() {
+			continue
+		}
 		if _, errs := e.server(); len(errs) > 0 {
 			return false
 		}
@@ -143,11 +182,15 @@ func (w *ConfigWindow) apply() bool {
 	}
 	servers := make([]config.Server, len(w.servers))
 	for i, e := range w.servers {
-		servers[i], _ = e.server()
+		servers[i] = e.result()
 	}
 	port, _ := strconv.Atoi(strings.TrimSpace(w.port))
 	if err := w.save(servers, w.sel, port, w.portable); err != nil {
-		w.saveErr = err.Error()
+		w.saveErr = Message(err)
+		var busy *controller.PortInUseError
+		if errors.As(err, &busy) {
+			w.portBusy, w.busyPort = true, w.port
+		}
 		return false
 	}
 	w.saveErr = ""
@@ -180,7 +223,7 @@ func (w *ConfigWindow) View(c *mui.Context) {
 		mui.Row(c).Grow(1).Gap(gap).AlignItems(mui.Stretch).Children(func() {
 			mui.List(c, &w.list, len(w.servers), func(i int) {
 				txt := mui.Text(c, w.title(i)).SingleLine().Padding(t.Space(1), t.Space(2))
-				if _, errs := w.servers[i].server(); len(errs) > 0 {
+				if _, errs := w.servers[i].server(); len(errs) > 0 || strings.TrimSpace(w.servers[i].Plugin) != "" {
 					txt.TextColor(t.Danger)
 				}
 			}).Width(180).Padding(t.Space(1)).Radius(t.Radius).Border(1, t.Border).
@@ -205,7 +248,10 @@ func (w *ConfigWindow) View(c *mui.Context) {
 						}).Error(errMsg(errs, "password"))
 						mui.Field(c, "", func() { mui.Checkbox(c, &w.showPass, T("Show Password")) })
 						mui.Field(c, T("Encryption"), func() { mui.Select(c, &e.Method, config.Methods) }).Error(errMsg(errs, "method"))
-						mui.Field(c, T("Plugin Program"), func() { mui.TextInput(c, &e.Plugin) })
+						plugin := mui.Field(c, T("Plugin Program"), func() { mui.TextInput(c, &e.Plugin) })
+						if strings.TrimSpace(e.Plugin) != "" {
+							plugin.Description(T("ssmygo.pluginUnsupported")) // P1; warn, do not block saving
+						}
 						mui.Field(c, T("Plugin Options"), func() { mui.TextInput(c, &e.PluginOpts).Disabled(e.Plugin == "") })
 						mui.Field(c, "", func() {
 							mui.Checkbox(c, &e.NeedArgs, T("Need Plugin Argument")).Disabled(e.Plugin == "")
@@ -239,8 +285,13 @@ func (w *ConfigWindow) View(c *mui.Context) {
 			mui.Text(c, T("Proxy Port")).RowStart(1).ColumnStart(3).JustifySelf(mui.End)
 			// No Field here (it would add a label row); mark it like Field.Error does.
 			port := mui.TextInput(c, &w.port).Label(T("Proxy Port")).RowStart(1).ColumnStart(4).ColumnSpan(-1)
+			if w.portBusy && w.port != w.busyPort {
+				w.portBusy = false // the user changed the port
+			}
 			if msg := w.portErr(); msg != "" {
 				port.Border(1, t.Danger).Tooltip(msg)
+			} else if w.portBusy {
+				port.Border(1, t.Danger).Tooltip(w.saveErr)
 			}
 
 			if mbtn(c, T("Duplicate"), mui.KeyC, !valid, btnW, 2, 1) {
@@ -280,7 +331,10 @@ func (w *ConfigWindow) title(i int) string {
 	return e.Server + ":" + e.Port
 }
 
-var configWin *mygo.Window
+var (
+	configWin  *mygo.Window
+	configView *ConfigWindow
+)
 
 // OpenConfigWindow shows the Edit Servers window, creating it on first use
 // and destroying it on close (tray-only memory stays low).
@@ -296,6 +350,16 @@ func OpenConfigWindow(ctrl *controller.Controller) {
 		Content: mui.View(w.View),
 	})
 	w.OnClose(win.Close)
-	win.OnClosed(func() { configWin = nil })
-	configWin = win
+	win.OnClosed(func() { configWin, configView = nil, nil })
+	configWin, configView = win, w
+}
+
+// appendToOpenConfigWindow merges servers imported from the tray into the
+// open Edit Servers window, if any (deferred #7). Main thread only.
+func appendToOpenConfigWindow(servers []config.Server) {
+	if configWin == nil || configWin.IsDestroyed() || configView == nil {
+		return
+	}
+	v := configView
+	configWin.Update(func() { v.AppendServers(servers) })
 }

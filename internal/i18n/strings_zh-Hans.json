@@ -40,6 +40,7 @@
   "ssmygo.imported": "已导入 %d 个，失败 %d 个。",
   "ssmygo.noLinks": "剪贴板中没有找到 ss:// 链接。",
   "ssmygo.noServer": "请先添加服务器。",
+  "ssmygo.pluginUnsupported": "此版本暂不支持插件。",
   "ssmygo.portInUse": "端口 %d 已被其他程序占用。",
   "ssmygo.startFailed": "ssmygo 无法启动代理：%s"
 }

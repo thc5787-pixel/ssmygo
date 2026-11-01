@@ -28,13 +28,14 @@ var keys = []string{
 
 // extra are strings the original lacks: key → {en, zh-Hans}.
 var extra = map[string][2]string{
-	"Group":              {"Group", "分组"},
-	"ssmygo.imported":    {"Imported %d, failed %d.", "已导入 %d 个，失败 %d 个。"},
-	"ssmygo.noLinks":     {"No ss:// links found in the clipboard.", "剪贴板中没有找到 ss:// 链接。"},
-	"ssmygo.portInUse":   {"Port %d is in use by another program.", "端口 %d 已被其他程序占用。"},
-	"ssmygo.startFailed": {"ssmygo could not start the proxy: %s", "ssmygo 无法启动代理：%s"},
-	"ssmygo.noServer":    {"Add a server first.", "请先添加服务器。"},
-	"ssmygo.cannotSave":  {"Could not save: %s", "无法保存：%s"},
+	"Group":                    {"Group", "分组"},
+	"ssmygo.imported":          {"Imported %d, failed %d.", "已导入 %d 个，失败 %d 个。"},
+	"ssmygo.noLinks":           {"No ss:// links found in the clipboard.", "剪贴板中没有找到 ss:// 链接。"},
+	"ssmygo.portInUse":         {"Port %d is in use by another program.", "端口 %d 已被其他程序占用。"},
+	"ssmygo.startFailed":       {"ssmygo could not start the proxy: %s", "ssmygo 无法启动代理：%s"},
+	"ssmygo.noServer":          {"Add a server first.", "请先添加服务器。"},
+	"ssmygo.cannotSave":        {"Could not save: %s", "无法保存：%s"},
+	"ssmygo.pluginUnsupported": {"Plugins are not supported in this version.", "此版本暂不支持插件。"},
 }
 
 var mnemonic = regexp.MustCompile(`\s?\(&\w\)|&`)

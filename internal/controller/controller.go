@@ -1,14 +1,16 @@
 // Package controller is ssmygo's state centre: it owns gui-config.json and
 // drives the core, the system proxy and the rules. It does not use MyGo;
-// subscribers are called synchronously on the caller's goroutine.
+// subscribers are called on the caller's goroutine after its lock is released.
 package controller
 
 import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -38,7 +40,8 @@ type Controller struct {
 	cfg     *config.Config
 	runner  *core.Runner
 	rules   *rules.Result
-	lastErr string
+	lastErr error // shown in the tray; typed so the UI can translate it
+	dirty   bool  // state changed: subscribers are told after the lock is released
 	started bool
 
 	subMu  sync.Mutex
@@ -64,7 +67,7 @@ func New(d Deps) (*Controller, error) {
 			return nil, errors.Join(err, berr)
 		}
 		d.Logger.Error("config corrupt, using defaults", "backup", bak, "err", err)
-		c.lastErr = "gui-config.json was corrupt and was backed up to " + filepath.Base(bak)
+		c.lastErr = fmt.Errorf("gui-config.json was corrupt and was backed up to %s", filepath.Base(bak))
 		cfg, err = config.Default(), nil
 	}
 	if err != nil {
@@ -74,36 +77,78 @@ func New(d Deps) (*Controller, error) {
 	return c, nil
 }
 
+// Errors the UI translates (deferred #4).
+var (
+	// ErrNoServer: enabling the system proxy without a usable server.
+	ErrNoServer = errors.New("no server configured")
+	// ErrPluginUnsupported: SIP003 plugins arrive in P1.
+	ErrPluginUnsupported = errors.New("plugins are not supported in this version")
+)
+
+// PortInUseError: the local proxy port could not be listened on.
+type PortInUseError struct {
+	Port int
+	Err  error
+}
+
+func (e *PortInUseError) Error() string { return fmt.Sprintf("port %d is in use: %v", e.Port, e.Err) }
+func (e *PortInUseError) Unwrap() error { return e.Err }
+
+// SaveError: gui-config.json could not be written.
+type SaveError struct{ Err error }
+
+func (e *SaveError) Error() string { return "save gui-config.json: " + e.Err.Error() }
+func (e *SaveError) Unwrap() error { return e.Err }
+
+// unlock releases the lock and then tells subscribers about a change, so
+// they may call back into the controller (deferred #8④).
+func (c *Controller) unlock() {
+	pending := c.dirty
+	c.dirty = false
+	var s State
+	if pending {
+		s = c.stateLocked()
+	}
+	c.mu.Unlock()
+	if pending {
+		c.publish(s)
+	}
+}
+
 // Start builds the rules, starts the core and applies the system proxy.
 func (c *Controller) Start() error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	defer c.unlock()
 	c.started = true
 	c.recoverCrash()
 
 	rs, err := rules.Build(c.d.DLC, c.cfg.GeositeDirectGroups, c.cfg.GeositeProxiedGroups, c.paths.DomainSets())
 	if err != nil {
 		c.d.Logger.Error("rules unavailable, rules mode routes everything through the server", "err", err)
-		c.lastErr = "rules unavailable: " + err.Error()
+		c.lastErr = fmt.Errorf("rules unavailable: %w", err)
 	} else {
 		c.rules = &rs
+		if len(rs.Missing) > 0 {
+			c.d.Logger.Warn("unknown geosite groups skipped", "groups", rs.Missing)
+			c.lastErr = fmt.Errorf("unknown geosite groups skipped: %v", rs.Missing)
+		}
 	}
 	// Return the cold rules build's garbage to the OS right away (tray-only
 	// working-set target is 40 MB); cheap, and a no-op on warm starts.
 	debug.FreeOSMemory()
 
 	coreErr := c.applyCore(c.cfg)
-	if c.cfg.Enabled && (coreErr != nil || !usable(c.cfg)) {
+	if c.cfg.Enabled && (coreErr != nil || unusable(c.cfg) != nil) {
 		// Never leave the system proxy on a port we cannot serve, nor point it
 		// at a core that would send everything direct.
 		reason := coreErr
 		if reason == nil {
-			reason = ErrNoServer
+			reason = unusable(c.cfg)
 		}
 		next := c.cfg.Clone()
 		next.Enabled = false
 		if next.Sysproxy.Recorded {
-			if err := c.d.Sys.Set(recorded(next.Sysproxy)); err != nil {
+			if err := c.setSys(recorded(next.Sysproxy)); err != nil {
 				c.d.Logger.Error("restore system proxy", "err", err)
 			} else {
 				next.Sysproxy = config.SysproxyRecord{}
@@ -111,13 +156,13 @@ func (c *Controller) Start() error {
 		}
 		c.cfg = next
 		c.save()
-		c.lastErr = reason.Error()
-		c.notifyLocked()
+		c.lastErr = reason
+		c.dirty = true
 		return reason
 	}
 	if coreErr != nil {
-		c.lastErr = coreErr.Error()
-		c.notifyLocked()
+		c.lastErr = coreErr
+		c.dirty = true
 		return coreErr
 	}
 	if c.cfg.Enabled {
@@ -126,14 +171,14 @@ func (c *Controller) Start() error {
 			next.Enabled = false
 			c.cfg = next
 			c.save()
-			c.lastErr = err.Error()
-			c.notifyLocked()
+			c.lastErr = err
+			c.dirty = true
 			return err
 		}
 		c.cfg = next
 		c.save()
 	}
-	c.notifyLocked()
+	c.dirty = true
 	return nil
 }
 
@@ -145,7 +190,7 @@ func (c *Controller) recoverCrash() {
 		return
 	}
 	if cur, err := c.d.Sys.Get(); err == nil && sysproxy.PointsTo(cur, c.cfg.LocalPort) {
-		if err := c.d.Sys.Set(recorded(rec)); err != nil {
+		if err := c.setSys(recorded(rec)); err != nil {
 			c.d.Logger.Error("restore system proxy after crash", "err", err)
 			return
 		}
@@ -158,12 +203,31 @@ func recorded(r config.SysproxyRecord) sysproxy.Settings {
 	return sysproxy.Settings{Flags: r.Flags, Server: r.Server, Bypass: r.Bypass, PacURL: r.PacURL}
 }
 
+// setSys applies s; a failure on some VPN/dial-up entries only is logged as
+// a warning — the LAN setting, which browsers use, was applied (deferred #5).
+func (c *Controller) setSys(s sysproxy.Settings) error {
+	err := c.d.Sys.Set(s)
+	var partial *sysproxy.PartialError
+	if errors.As(err, &partial) {
+		c.d.Logger.Warn("system proxy not applied to some connections", "err", err)
+		return nil
+	}
+	return err
+}
+
+// applyCore rebuilds the core for cfg. A listen failure becomes a
+// *PortInUseError.
 func (c *Controller) applyCore(cfg *config.Config) error {
 	sc, err := core.Build(cfg, c.rules)
 	if err != nil && !errors.Is(err, core.ErrNoServer) {
 		return err
 	}
-	return c.runner.Apply(sc)
+	err = c.runner.Apply(sc)
+	var op *net.OpError
+	if errors.As(err, &op) && op.Op == "listen" {
+		return &PortInUseError{Port: cfg.LocalPort, Err: err}
+	}
+	return err
 }
 
 // applySysproxy moves the system proxy from prev's state to next's,
@@ -183,11 +247,11 @@ func (c *Controller) applySysproxy(prev, next *config.Config) error {
 				next.Sysproxy = config.SysproxyRecord{Recorded: true, Flags: sysproxy.FlagDirect, Bypass: cur.Bypass}
 			}
 		}
-		if err := c.d.Sys.Set(sysproxy.LocalSettings(next.LocalPort, next.Sysproxy.Bypass)); err != nil {
+		if err := c.setSys(sysproxy.LocalSettings(next.LocalPort, next.Sysproxy.Bypass)); err != nil {
 			return fmt.Errorf("set system proxy: %w", err)
 		}
 	case prev.Enabled && next.Sysproxy.Recorded:
-		if err := c.d.Sys.Set(recorded(next.Sysproxy)); err != nil {
+		if err := c.setSys(recorded(next.Sysproxy)); err != nil {
 			return fmt.Errorf("restore system proxy: %w", err)
 		}
 		next.Sysproxy = config.SysproxyRecord{}
@@ -195,8 +259,8 @@ func (c *Controller) applySysproxy(prev, next *config.Config) error {
 	return nil
 }
 
-// commit applies next (core, then system proxy), saves it and notifies. On
-// failure everything returns to the previous configuration.
+// commit applies next (core, then system proxy), saves it and marks the
+// state changed. On failure everything returns to the previous configuration.
 func (c *Controller) commit(next *config.Config) error {
 	prev := c.cfg
 	if prev.Enabled && !next.Enabled {
@@ -211,8 +275,8 @@ func (c *Controller) commit(next *config.Config) error {
 		if coreErr != nil {
 			return c.fail(coreErr)
 		}
-		c.lastErr = ""
-		c.notifyLocked()
+		c.lastErr = nil
+		c.dirty = true
 		return nil
 	}
 	if err := c.applyCore(next); err != nil {
@@ -224,13 +288,12 @@ func (c *Controller) commit(next *config.Config) error {
 		return c.fail(err)
 	}
 	c.cfg = next
-	c.lastErr = ""
+	c.lastErr = nil
+	c.dirty = true
 	if err := c.save(); err != nil {
-		c.lastErr = "save gui-config.json: " + err.Error()
-		c.notifyLocked()
-		return err
+		c.lastErr = &SaveError{Err: err}
+		return c.lastErr
 	}
-	c.notifyLocked()
 	return nil
 }
 
@@ -242,8 +305,8 @@ func (c *Controller) rollbackCore(prev *config.Config) {
 
 func (c *Controller) fail(err error) error {
 	c.d.Logger.Error("change rejected", "err", err)
-	c.lastErr = err.Error()
-	c.notifyLocked()
+	c.lastErr = err
+	c.dirty = true
 	return err
 }
 
@@ -254,42 +317,50 @@ func (c *Controller) save() error {
 	return c.cfg.Save(c.paths.Config())
 }
 
-// ErrNoServer is returned when enabling the system proxy without a usable server.
-var ErrNoServer = errors.New("no server configured")
+// unusable says why cfg's current server cannot carry traffic, or nil.
+func unusable(cfg *config.Config) error {
+	s, ok := cfg.Current()
+	switch {
+	case !ok:
+		return ErrNoServer
+	case s.Plugin != "":
+		return ErrPluginUnsupported
+	}
+	if errs := s.Validate(); len(errs) > 0 {
+		return fmt.Errorf("server %q: %w", s.Title(), errs[0])
+	}
+	return nil
+}
 
 // SetMode switches between Disabled, Rules ("PAC") and Global.
 func (c *Controller) SetMode(m Mode) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	defer c.unlock()
 	next := c.cfg.Clone()
 	next.Enabled = m != Disabled
 	if m != Disabled {
 		next.Global = m == Global
-		if !usable(next) {
-			return c.fail(ErrNoServer)
+		if err := unusable(next); err != nil {
+			return c.fail(err)
 		}
 	}
 	return c.commit(next)
-}
-
-// usable reports whether cfg's current server can carry traffic.
-func usable(cfg *config.Config) bool {
-	s, ok := cfg.Current()
-	return ok && len(s.Validate()) == 0
 }
 
 // SelectServer makes server i current. While the system proxy is on, an
 // unusable server is refused: the core would silently send traffic direct.
 func (c *Controller) SelectServer(i int) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	defer c.unlock()
 	if i < 0 || i >= len(c.cfg.Configs) {
 		return c.fail(fmt.Errorf("no server %d", i))
 	}
 	next := c.cfg.Clone()
 	next.Index = i
-	if next.Enabled && !usable(next) {
-		return c.fail(fmt.Errorf("server %q is not usable: %v", next.Configs[i].Title(), next.Configs[i].Validate()[0]))
+	if next.Enabled {
+		if err := unusable(next); err != nil {
+			return c.fail(err)
+		}
 	}
 	return c.commit(next)
 }
@@ -297,18 +368,23 @@ func (c *Controller) SelectServer(i int) error {
 // SetShareLAN listens on all interfaces when on.
 func (c *Controller) SetShareLAN(on bool) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	defer c.unlock()
 	next := c.cfg.Clone()
 	next.ShareOverLan = on
 	return c.commit(next)
 }
 
-// SaveServers applies the Edit Servers window. A server that does not
-// validate is returned as its config.FieldError.
+// SaveServers applies the Edit Servers window. A new or changed server that
+// does not validate is returned as its config.FieldError; invalid servers
+// already in the configuration and passed back unchanged are kept as they
+// are (deferred #3).
 func (c *Controller) SaveServers(servers []config.Server, index, port int, portable bool) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	defer c.unlock()
 	for _, s := range servers {
+		if c.unchanged(s) {
+			continue
+		}
 		if errs := s.Validate(); len(errs) > 0 {
 			return errs[0]
 		}
@@ -322,57 +398,81 @@ func (c *Controller) SaveServers(servers []config.Server, index, port int, porta
 	if index < 0 || index >= len(servers) {
 		next.Index = 0
 	}
+	if next.Enabled {
+		if err := unusable(next); err != nil {
+			return c.fail(err)
+		}
+	}
 	next.LocalPort = port
 	next.FirstRun = false
-	moving := portable != c.cfg.PortableMode
 	next.PortableMode = portable
-	if err := c.commit(next); err != nil {
-		return err
+	if portable == c.cfg.PortableMode {
+		return c.commit(next)
 	}
-	if moving {
-		return c.movePortable(portable)
-	}
-	return nil
+	return c.commitMoving(next, portable)
 }
 
-// movePortable switches the data root so the next launch finds the config:
-// portable → exe dir (portableMode true there); roaming → AppData, leaving
-// a portableMode=false marker in the exe dir when one exists there.
-func (c *Controller) movePortable(portable bool) error {
+// unchanged reports whether s is exactly one of the current servers.
+func (c *Controller) unchanged(s config.Server) bool {
+	for _, o := range c.cfg.Configs {
+		if reflect.DeepEqual(o, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// commitMoving commits next into the other data root (deferred #2): the new
+// location is written first; only then is the old file reduced to what
+// ResolveRoot needs — a {"portableMode":false} marker in the exe dir, or
+// nothing in AppData. If the new location cannot be written, nothing moves.
+func (c *Controller) commitMoving(next *config.Config, portable bool) error {
 	from := c.paths
 	to := config.Paths{Root: c.d.RoamingRoot}
 	if portable {
 		to = config.Paths{Root: c.d.PortableRoot}
 	}
 	if to.Root == "" || to.Root == from.Root {
-		return nil
+		return c.commit(next)
 	}
 	c.paths = to
-	if err := c.save(); err != nil {
-		c.paths = from
-		return c.fail(fmt.Errorf("move config: %w", err))
+	if err := c.commit(next); err != nil {
+		var se *SaveError
+		if errors.As(err, &se) {
+			// Applied but not written: keep the old root and the old mode.
+			c.paths = from
+			c.cfg.PortableMode = !portable
+			c.save()
+		} else {
+			c.paths = from
+		}
+		return err
 	}
-	// The old file now only tells ResolveRoot where to look (portableMode
-	// already holds the new value), so it is kept as written by commit.
-	c.notifyLocked()
+	old := from.Config()
+	if portable {
+		os.Remove(old) // roaming copy: ResolveRoot now finds the exe-dir file
+	} else if err := os.WriteFile(old, []byte("{\"portableMode\": false}\n"), 0o644); err != nil {
+		c.d.Logger.Warn("could not reduce the old portable config to a marker", "err", err)
+	}
 	return nil
 }
 
-// ImportURLs appends the servers of every ss:// link in text.
-func (c *Controller) ImportURLs(text string) (int, []error) {
+// ImportURLs appends the servers of every ss:// link in text and returns
+// those added (the Edit Servers window merges them if open, deferred #7).
+func (c *Controller) ImportURLs(text string) ([]config.Server, []error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	defer c.unlock()
 	servers, errs := config.ParseURLs(text)
 	if len(servers) == 0 {
-		return 0, errs
+		return nil, errs
 	}
 	next := c.cfg.Clone()
 	next.Configs = append(next.Configs, servers...)
 	next.FirstRun = false
 	if err := c.commit(next); err != nil {
-		return 0, append(errs, err)
+		return nil, append(errs, err)
 	}
-	return len(servers), errs
+	return servers, errs
 }
 
 // Config returns a copy for editing.
@@ -391,11 +491,14 @@ func (c *Controller) State() State {
 
 func (c *Controller) stateLocked() State {
 	s := State{
-		Current:   c.cfg.Index,
-		ShareLAN:  c.cfg.ShareOverLan,
-		LastError: c.lastErr,
-		Port:      c.cfg.LocalPort,
-		FirstRun:  c.cfg.FirstRun,
+		Current:  c.cfg.Index,
+		ShareLAN: c.cfg.ShareOverLan,
+		Err:      c.lastErr,
+		Port:     c.cfg.LocalPort,
+		FirstRun: c.cfg.FirstRun,
+	}
+	if c.lastErr != nil {
+		s.LastError = c.lastErr.Error()
 	}
 	switch {
 	case !c.cfg.Enabled:
@@ -411,7 +514,8 @@ func (c *Controller) stateLocked() State {
 	return s
 }
 
-// Subscribe calls fn with the new State after every change.
+// Subscribe calls fn with the new State after every change, outside the
+// controller's lock.
 func (c *Controller) Subscribe(fn func(State)) (off func()) {
 	c.subMu.Lock()
 	defer c.subMu.Unlock()
@@ -425,8 +529,7 @@ func (c *Controller) Subscribe(fn func(State)) (off func()) {
 	}
 }
 
-func (c *Controller) notifyLocked() {
-	s := c.stateLocked()
+func (c *Controller) publish(s State) {
 	c.subMu.Lock()
 	fns := make([]func(State), 0, len(c.subs))
 	for _, fn := range c.subs {
@@ -449,7 +552,7 @@ func (c *Controller) Shutdown() {
 	}
 	c.started = false
 	if c.cfg.Enabled && c.cfg.Sysproxy.Recorded {
-		if err := c.d.Sys.Set(recorded(c.cfg.Sysproxy)); err != nil {
+		if err := c.setSys(recorded(c.cfg.Sysproxy)); err != nil {
 			c.d.Logger.Error("restore system proxy on exit", "err", err)
 		} else {
 			c.cfg.Sysproxy = config.SysproxyRecord{}
