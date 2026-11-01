@@ -32,11 +32,15 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	mygo.App.OnWindowAllClosed(func() {}) // live in the tray
-	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) {
+	shutdown := func() {
 		if ctrl != nil {
-			ctrl.Shutdown()
+			ctrl.Shutdown() // idempotent
 		}
-	})
+	}
+	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { shutdown() })
+	// Windows logoff/shutdown (WM_ENDSESSION) ends the app through OnQuit
+	// only, skipping OnBeforeQuit; the user's proxy must still be restored.
+	mygo.App.OnQuit(shutdown)
 	mygo.App.OnSecondInstance(func([]string, string) {
 		if ctrl != nil {
 			ui.OpenConfigWindow(ctrl)

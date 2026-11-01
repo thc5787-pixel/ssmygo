@@ -50,9 +50,11 @@ type Controller struct {
 // defaults; the backup is reported through State().LastError.
 func New(d Deps) (*Controller, error) {
 	c := &Controller{
-		d:      d,
-		paths:  d.Paths,
-		runner: core.NewRunner(tslog.Config{}.NewLoggerWithHandler(d.Logger.Handler())),
+		d:     d,
+		paths: d.Paths,
+		// Warn: at Info the core logs every connection's destination, which
+		// would write a browsing history next to a portable exe.
+		runner: core.NewRunner(tslog.Config{Level: slog.LevelWarn}.NewLoggerWithHandler(d.Logger.Handler())),
 		subs:   map[int]func(State){},
 	}
 	cfg, err := config.Load(d.Paths.Config())
@@ -90,10 +92,33 @@ func (c *Controller) Start() error {
 	// working-set target is 40 MB); cheap, and a no-op on warm starts.
 	debug.FreeOSMemory()
 
-	if err := c.applyCore(c.cfg); err != nil {
-		c.lastErr = err.Error()
+	coreErr := c.applyCore(c.cfg)
+	if c.cfg.Enabled && (coreErr != nil || !usable(c.cfg)) {
+		// Never leave the system proxy on a port we cannot serve, nor point it
+		// at a core that would send everything direct.
+		reason := coreErr
+		if reason == nil {
+			reason = ErrNoServer
+		}
+		next := c.cfg.Clone()
+		next.Enabled = false
+		if next.Sysproxy.Recorded {
+			if err := c.d.Sys.Set(recorded(next.Sysproxy)); err != nil {
+				c.d.Logger.Error("restore system proxy", "err", err)
+			} else {
+				next.Sysproxy = config.SysproxyRecord{}
+			}
+		}
+		c.cfg = next
+		c.save()
+		c.lastErr = reason.Error()
 		c.notifyLocked()
-		return err
+		return reason
+	}
+	if coreErr != nil {
+		c.lastErr = coreErr.Error()
+		c.notifyLocked()
+		return coreErr
 	}
 	if c.cfg.Enabled {
 		next := c.cfg.Clone()
@@ -152,6 +177,11 @@ func (c *Controller) applySysproxy(prev, next *config.Config) error {
 				return fmt.Errorf("read system proxy: %w", err)
 			}
 			next.Sysproxy = config.SysproxyRecord{Recorded: true, Flags: cur.Flags, Server: cur.Server, Bypass: cur.Bypass, PacURL: cur.PacURL}
+			if sysproxy.PointsTo(cur, next.LocalPort) || sysproxy.PointsTo(cur, prev.LocalPort) {
+				// Already ours (e.g. left by the original client on the same
+				// port): restoring it later would leave a dead proxy.
+				next.Sysproxy = config.SysproxyRecord{Recorded: true, Flags: sysproxy.FlagDirect, Bypass: cur.Bypass}
+			}
 		}
 		if err := c.d.Sys.Set(sysproxy.LocalSettings(next.LocalPort, next.Sysproxy.Bypass)); err != nil {
 			return fmt.Errorf("set system proxy: %w", err)
@@ -169,6 +199,22 @@ func (c *Controller) applySysproxy(prev, next *config.Config) error {
 // failure everything returns to the previous configuration.
 func (c *Controller) commit(next *config.Config) error {
 	prev := c.cfg
+	if prev.Enabled && !next.Enabled {
+		// Disabling: give the user their proxy back first, even if the core
+		// then fails (e.g. the port was taken) — never stay on a dead port.
+		if err := c.applySysproxy(prev, next); err != nil {
+			return c.fail(err)
+		}
+		coreErr := c.applyCore(next)
+		c.cfg = next
+		c.save()
+		if coreErr != nil {
+			return c.fail(coreErr)
+		}
+		c.lastErr = ""
+		c.notifyLocked()
+		return nil
+	}
 	if err := c.applyCore(next); err != nil {
 		c.rollbackCore(prev)
 		return c.fail(err)
@@ -219,14 +265,21 @@ func (c *Controller) SetMode(m Mode) error {
 	next.Enabled = m != Disabled
 	if m != Disabled {
 		next.Global = m == Global
-		if s, ok := next.Current(); !ok || len(s.Validate()) > 0 {
+		if !usable(next) {
 			return c.fail(ErrNoServer)
 		}
 	}
 	return c.commit(next)
 }
 
-// SelectServer makes server i current.
+// usable reports whether cfg's current server can carry traffic.
+func usable(cfg *config.Config) bool {
+	s, ok := cfg.Current()
+	return ok && len(s.Validate()) == 0
+}
+
+// SelectServer makes server i current. While the system proxy is on, an
+// unusable server is refused: the core would silently send traffic direct.
 func (c *Controller) SelectServer(i int) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -235,6 +288,9 @@ func (c *Controller) SelectServer(i int) error {
 	}
 	next := c.cfg.Clone()
 	next.Index = i
+	if next.Enabled && !usable(next) {
+		return c.fail(fmt.Errorf("server %q is not usable: %v", next.Configs[i].Title(), next.Configs[i].Validate()[0]))
+	}
 	return c.commit(next)
 }
 

@@ -18,13 +18,16 @@ const DefaultTimeout = 5
 // Links that fail to parse are reported in errs; text without links yields
 // neither servers nor errors.
 func ParseURLs(text string) (servers []Server, errs []error) {
+	n := 0
 	for _, tok := range strings.Fields(text) {
 		if len(tok) < 5 || !strings.EqualFold(tok[:5], "ss://") {
 			continue
 		}
+		n++
 		s, err := parseURL(tok)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("%.40s: %w", tok, err))
+			// Never echo the link: its userinfo is the password.
+			errs = append(errs, fmt.Errorf("ss:// link %d: %w", n, err))
 			continue
 		}
 		servers = append(servers, s)
@@ -57,27 +60,28 @@ func parseURL(link string) (Server, error) {
 	return s, nil
 }
 
-// parseSIP002 handles ss://userinfo@host:port[/][?plugin=...].
+// parseSIP002 handles ss://userinfo@host:port[/][?plugin=...]. The userinfo
+// is split off by hand: standard base64 and unescaped SS2022 keys may
+// contain '/', '+' and '=', which url.Parse would treat as structure.
 func parseSIP002(body string, s *Server) error {
-	u, err := url.Parse("ss://" + body)
-	if err != nil {
-		return err
-	}
-	if u.User == nil {
-		return errors.New("missing userinfo")
-	}
-	if pass, ok := u.User.Password(); ok { // SIP002 plain userinfo (SS2022)
-		s.Method, s.Password = u.User.Username(), pass
+	at := strings.LastIndexByte(body, '@')
+	userinfo, rest := body[:at], body[at+1:]
+	if plain, err := url.PathUnescape(userinfo); err == nil && strings.Contains(plain, ":") {
+		s.Method, s.Password, _ = strings.Cut(plain, ":") // SIP002 plain userinfo (SS2022)
 	} else {
-		dec, err := decodeBase64(u.User.Username())
+		dec, err := decodeBase64(userinfo)
 		if err != nil {
-			return err
+			return errors.New("userinfo is neither method:password nor base64")
 		}
 		m, p, ok := strings.Cut(string(dec), ":")
 		if !ok {
 			return errors.New("userinfo is not method:password")
 		}
 		s.Method, s.Password = m, p
+	}
+	u, err := url.Parse("ss://" + rest)
+	if err != nil {
+		return errors.New("bad host or port")
 	}
 	s.Server = u.Hostname()
 	if s.ServerPort, err = strconv.Atoi(u.Port()); err != nil {

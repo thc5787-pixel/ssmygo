@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/base64"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -68,6 +69,36 @@ func TestFormatParseRoundTrip(t *testing.T) {
 			if len(errs) != 0 || len(got) != 1 || !reflect.DeepEqual(got[0], s) {
 				t.Errorf("%s %s: %s →\n got %+v %v\nwant %+v", m, srv, FormatURL(s), got, errs, s)
 			}
+		}
+	}
+}
+
+// Review I4: standard-alphabet base64 userinfo may contain '/', and an
+// unescaped SS2022 PSK may contain '/' and '+'.
+func TestParseSlashInUserinfo(t *testing.T) {
+	got, errs := ParseURLs("ss://YWVzLTI1Ni1nY206YT9iPmN+fn4/@h.com:443#n")
+	if len(errs) != 0 || len(got) != 1 || got[0].Method != "aes-256-gcm" || got[0].Password != "a?b>c~~~?" || got[0].Server != "h.com" {
+		t.Fatalf("std base64 with '/': %+v %v", got, errs)
+	}
+	got, errs = ParseURLs("ss://2022-blake3-aes-128-gcm:ab/cd+ef==@h.com:8388/?plugin=x#k")
+	if len(errs) != 0 || len(got) != 1 || got[0].Password != "ab/cd+ef==" || got[0].ServerPort != 8388 || got[0].Plugin != "x" {
+		t.Fatalf("unescaped psk: %+v %v", got, errs)
+	}
+}
+
+// Review M1: a failing link must not put its password into the error text.
+func TestParseErrorRedacts(t *testing.T) {
+	for _, link := range []string{
+		"ss://2022-blake3-aes-128-gcm:SECRETPSK123%3D@h.com:99999",
+		"ss://2022-blake3-aes-128-gcm:SECRETPSK123@[bad:443",
+		"ss://" + base64.RawURLEncoding.EncodeToString([]byte("aes-256-gcm:SECRETPSK123")) + "@h.com:notaport",
+	} {
+		_, errs := ParseURLs(link)
+		if len(errs) != 1 {
+			t.Fatalf("%s: errs %v", link, errs)
+		}
+		if strings.Contains(errs[0].Error(), "SECRET") || strings.Contains(errs[0].Error(), base64.RawURLEncoding.EncodeToString([]byte("aes-256-gcm:SECRETPSK123"))) {
+			t.Errorf("error leaks secret: %v", errs[0])
 		}
 	}
 }

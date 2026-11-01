@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -151,7 +152,7 @@ func socksEcho(port int, target netip.AddrPort) error {
 
 func TestStartFreshCreatesDefaultConfig(t *testing.T) {
 	e := newEnv(t)
-	c := e.start()
+	c := e.newOnly()
 	if !c.State().FirstRun || c.State().Mode != Disabled {
 		t.Fatalf("state %+v", c.State())
 	}
@@ -315,7 +316,7 @@ func TestSysproxySetFailureRollsBack(t *testing.T) {
 
 func TestEnableWithoutServerFails(t *testing.T) {
 	e := newEnv(t)
-	c := e.start()
+	c := e.newOnly()
 	if err := c.SetMode(Global); err == nil || len(e.sys.Calls) != 0 {
 		t.Fatalf("err %v calls %v", err, e.sys.Calls)
 	}
@@ -382,7 +383,7 @@ func TestDLCCorruptFallsBackToGlobal(t *testing.T) {
 func TestCorruptConfigBackedUp(t *testing.T) {
 	e := newEnv(t)
 	os.WriteFile(filepath.Join(e.portable, "gui-config.json"), []byte(`{"configs":[`), 0o644)
-	c := e.start()
+	c := e.newOnly()
 	if !strings.Contains(c.State().LastError, "bad-") {
 		t.Fatalf("LastError %q", c.State().LastError)
 	}
@@ -407,4 +408,143 @@ func TestPortableSwitchMovesConfig(t *testing.T) {
 	if err != nil || len(moved.Configs) != 1 || moved.PortableMode {
 		t.Fatalf("roaming config %+v %v", moved, err)
 	}
+}
+
+// Review I5: the core must not log every connection's destination.
+func TestCoreDoesNotLogDestinations(t *testing.T) {
+	e := newEnv(t)
+	e.writeConfig(nil)
+	var buf strings.Builder
+	d := e.deps()
+	d.Logger = slog.New(slog.NewTextHandler(&lockedWriter{w: &buf}, nil))
+	c, err := New(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Shutdown()
+	if err := socksEcho(c.State().Port, e.target); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if s := buf.String(); strings.Contains(s, e.target.String()) {
+		t.Fatalf("destination logged:\n%s", s)
+	}
+}
+
+type lockedWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (l *lockedWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.w.Write(p)
+}
+
+// Review I2: enabled on disk but the current server is unusable → never
+// point the system proxy at a direct-only core.
+func TestStartEnabledWithInvalidServer(t *testing.T) {
+	e := newEnv(t)
+	e.writeConfig(func(c *config.Config) {
+		c.Enabled = true
+		c.Configs[0].Method = "aes-256-cfb"
+	})
+	c, err := New(e.deps())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Start()
+	defer c.Shutdown()
+	if len(e.sys.Calls) != 0 || e.sys.Cur != userProxy {
+		t.Fatalf("system proxy changed: %+v", e.sys.Calls)
+	}
+	if c.State().Mode != Disabled || c.State().LastError == "" {
+		t.Fatalf("state %+v", c.State())
+	}
+}
+
+func TestSelectInvalidServerWhileEnabled(t *testing.T) {
+	e := newEnv(t)
+	bad := e.server()
+	bad.Method = "aes-256-cfb"
+	e.writeConfig(func(c *config.Config) { c.Configs = append(c.Configs, bad) })
+	c := e.start()
+	if err := c.SetMode(Rules); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SelectServer(1); err == nil {
+		t.Fatal("selecting an unusable server while enabled succeeded")
+	}
+	if c.State().Current != 0 {
+		t.Fatalf("current %d", c.State().Current)
+	}
+	if err := socksEcho(c.State().Port, e.target); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Review I3: crash left the proxy on our port, then another program took
+// the port: we cannot serve, so the user's proxy must come back.
+func TestStartBindFailureRestoresProxy(t *testing.T) {
+	e := newEnv(t)
+	busy, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer busy.Close()
+	port := busy.Addr().(*net.TCPAddr).Port
+	e.writeConfig(func(c *config.Config) {
+		c.LocalPort = port
+		c.Enabled = true
+		c.Sysproxy = config.SysproxyRecord{Recorded: true, Flags: userProxy.Flags, PacURL: userProxy.PacURL, Bypass: userProxy.Bypass}
+	})
+	e.sys.Cur = sysproxy.LocalSettings(port, userProxy.Bypass)
+	c, err := New(e.deps())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Start(); err == nil {
+		t.Fatal("Start on a busy port succeeded")
+	}
+	defer c.Shutdown()
+	if e.sys.Cur != userProxy {
+		t.Fatalf("proxy left on dead port: %+v", e.sys.Cur)
+	}
+	if c.State().Mode != Disabled {
+		t.Fatalf("mode %v", c.State().Mode)
+	}
+	if err := c.SetMode(Disabled); err != nil && e.sys.Cur != userProxy {
+		t.Fatalf("disable: %v, proxy %+v", err, e.sys.Cur)
+	}
+}
+
+// Review M6: if the system proxy already points at our port (left by the
+// original client), recording it would make Disable restore a dead proxy.
+func TestRecordingOwnProxyRecordsDirect(t *testing.T) {
+	e := newEnv(t)
+	e.writeConfig(nil)
+	c := e.start()
+	port := c.State().Port
+	e.sys.Cur = sysproxy.Settings{Flags: sysproxy.FlagDirect | sysproxy.FlagProxy, Server: fmt.Sprintf("127.0.0.1:%d", port), Bypass: "*.corp"}
+	c.SetMode(Rules)
+	c.SetMode(Disabled)
+	if e.sys.Cur.Flags&sysproxy.FlagProxy != 0 || e.sys.Cur.Bypass != "*.corp" {
+		t.Fatalf("restored to %+v, want direct with the user's bypass", e.sys.Cur)
+	}
+}
+
+// newOnly constructs without Start: Start on a fresh config binds the
+// default port 1080, which a running ssmygo may hold (review M10).
+func (e *env) newOnly() *Controller {
+	e.t.Helper()
+	c, err := New(e.deps())
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	e.t.Cleanup(c.runner.Stop)
+	return c
 }
