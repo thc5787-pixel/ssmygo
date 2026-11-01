@@ -82,15 +82,17 @@ func TestParseDLCGarbage(t *testing.T) {
 
 func TestSelectAttr(t *testing.T) {
 	m, _ := ParseDLC(fixture())
-	got, err := Select(m, []string{"geolocation-!cn@cn"})
-	if err != nil {
-		t.Fatal(err)
+	got, missing := Select(m, []string{"geolocation-!cn@cn"})
+	if len(missing) != 0 {
+		t.Fatal(missing)
 	}
 	if len(got) != 1 || got[0].Value != "bilibili.com" {
 		t.Fatalf("got %+v", got)
 	}
-	if _, err := Select(m, []string{"cn", "nope"}); err == nil || !strings.Contains(err.Error(), "nope") {
-		t.Fatalf("err = %v", err)
+	// Deferred #8①: an unknown group is reported, the others still apply.
+	got, missing = Select(m, []string{"cn", "nope"})
+	if len(got) != 4 || strings.Join(missing, ",") != "nope" {
+		t.Fatalf("got %d domains, missing %v", len(got), missing)
 	}
 	all, _ := Select(m, []string{"CN"}) // case-insensitive like v2ray
 	if len(all) != 4 {
@@ -159,7 +161,7 @@ func TestEmbeddedDLCParses(t *testing.T) {
 			t.Errorf("embedded dlc missing %q", k)
 		}
 	}
-	if _, err := Select(m, []string{"private", "cn", "geolocation-!cn@cn", "geolocation-!cn"}); err != nil {
+	if _, missing := Select(m, []string{"private", "cn", "geolocation-!cn@cn", "geolocation-!cn"}); len(missing) != 0 {
 		t.Fatal(err)
 	}
 }
@@ -197,5 +199,35 @@ func TestBuildAllocations(t *testing.T) {
 	t.Logf("cold build allocated %.1f MB", mb)
 	if mb > 30 { // whole-file parsing was 44 MB; selected groups alone are ~26 MB
 		t.Errorf("cold build allocated %.1f MB > 30 MB", mb)
+	}
+}
+
+// Deferred #8①: one mistyped group must not disable all rules.
+func TestBuildSkipsUnknownGroup(t *testing.T) {
+	r, err := Build(fixture(), []string{"cn", "nope"}, []string{"geolocation-!cn"}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(r.Missing, ",") != "nope" {
+		t.Fatalf("missing %v", r.Missing)
+	}
+	if !loadSet(t, r.Direct).Match("baidu.com") {
+		t.Fatal("known groups not applied")
+	}
+}
+
+// Deferred #8③: a new converter version must rebuild an otherwise valid cache.
+func TestBuildCacheVersion(t *testing.T) {
+	dir := t.TempDir()
+	r, _ := Build(fixture(), []string{"cn"}, []string{"geolocation-!cn"}, dir)
+	st1, _ := os.Stat(r.Direct)
+	time.Sleep(20 * time.Millisecond)
+	old := converterVersion
+	converterVersion = old + "-next"
+	defer func() { converterVersion = old }()
+	r2, _ := Build(fixture(), []string{"cn"}, []string{"geolocation-!cn"}, dir)
+	st2, _ := os.Stat(r2.Direct)
+	if st1.ModTime().Equal(st2.ModTime()) {
+		t.Fatal("cache reused across converter versions")
 	}
 }

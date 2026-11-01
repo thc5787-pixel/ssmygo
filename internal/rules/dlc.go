@@ -4,7 +4,6 @@ package rules
 
 import (
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
 
@@ -130,14 +129,16 @@ func eachField(b []byte, fn func(num protowire.Number, typ protowire.Type, v []b
 }
 
 // Select returns the domains of groups. A group is "name" or "name@attr"
-// (only domains carrying attr); names are case-insensitive.
-func Select(list map[string][]Domain, groups []string) ([]Domain, error) {
-	var out []Domain
+// (only domains carrying attr); names are case-insensitive. Groups not in
+// list are returned in missing and skipped, so one typo does not disable
+// every rule.
+func Select(list map[string][]Domain, groups []string) (out []Domain, missing []string) {
 	for _, g := range groups {
 		name, attr, hasAttr := strings.Cut(strings.ToLower(g), "@")
 		ds, ok := list[name]
 		if !ok {
-			return nil, fmt.Errorf("rules: unknown geosite group %q", g)
+			missing = append(missing, g)
+			continue
 		}
 		for _, d := range ds {
 			if !hasAttr || slices.Contains(d.Attrs, attr) {
@@ -145,5 +146,5 @@ func Select(list map[string][]Domain, groups []string) ([]Domain, error) {
 			}
 		}
 	}
-	return out, nil
+	return out, missing
 }

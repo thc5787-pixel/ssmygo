@@ -46,3 +46,29 @@ func TestCreatesDir(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Deferred #8②: if reopening ssmygo.log after a rotation fails, logging
+// must continue (into the rotated file) instead of dying for the session.
+func TestRotateReopenFailureKeepsLogging(t *testing.T) {
+	dir := t.TempDir()
+	l, closer, err := New(dir, 200, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closer.Close()
+	orig := openFile
+	defer func() { openFile = orig }()
+	openFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+		if filepath.Base(name) == "ssmygo.log" {
+			return nil, os.ErrPermission
+		}
+		return orig(name, flag, perm)
+	}
+	for i := 0; i < 20; i++ {
+		l.Info("after-failure", "n", i)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "ssmygo.1.log"))
+	if !strings.Contains(string(b), "n=19") {
+		t.Fatalf("last record lost; ssmygo.1.log:\n%s", b)
+	}
+}
