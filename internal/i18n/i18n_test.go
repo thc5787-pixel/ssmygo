@@ -42,3 +42,29 @@ func TestAllKeysTranslated(t *testing.T) {
 		}
 	}
 }
+
+// A1: Forward Proxy window strings come from the original WPF resx files.
+func TestResxStrings(t *testing.T) {
+	defer SetLocale("en")
+	SetLocale("zh-CN")
+	for key, want := range map[string]string{
+		"resx.NoProxy":             "不使用代理",
+		"resx.Timeout":             "超时 (秒)",
+		"resx.ForwardProxy":        "前置代理",
+		"resx.CredentialsOptional": "认证 (可选)",
+		"SOCKS5":                   "SOCKS5",
+		"Save":                     "保存",
+		"ssmygo.trustRun":          "运行",
+	} {
+		if got := T(key); got != want {
+			t.Errorf("zh %s = %q, want %q", key, got, want)
+		}
+	}
+	if T("Forward Proxy...") == "Forward Proxy..." {
+		t.Error("Forward Proxy... untranslated in zh")
+	}
+	SetLocale("en")
+	if T("resx.Timeout") != "Timeout (sec)" || T("resx.NoProxy") != "No proxy" {
+		t.Errorf("en %q %q", T("resx.Timeout"), T("resx.NoProxy"))
+	}
+}
