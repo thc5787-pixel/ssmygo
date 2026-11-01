@@ -14,20 +14,26 @@ import (
 // (original Server.DefaultServerTimeoutSec).
 const DefaultTimeout = 5
 
-// ParseURLs extracts every ss:// link in text (separated by any whitespace).
-// Links that fail to parse are reported in errs; text without links yields
-// neither servers nor errors.
+// ParseURLs extracts every ss:// link in text, wherever it appears (glued
+// to other text, in quotes, several per line). A link runs to the next
+// "ss://" or line break; before "#" it stops at whitespace or quotes, while
+// the #remark may contain spaces. Links that fail to parse are reported in
+// errs; text without links yields neither servers nor errors.
 func ParseURLs(text string) (servers []Server, errs []error) {
-	n := 0
-	for _, tok := range strings.Fields(text) {
-		if len(tok) < 5 || !strings.EqualFold(tok[:5], "ss://") {
-			continue
+	starts := linkStarts(text)
+	for n, start := range starts {
+		end := len(text)
+		if n+1 < len(starts) {
+			end = starts[n+1]
 		}
-		n++
-		s, err := parseURL(tok)
+		seg := text[start+len("ss://") : end]
+		if i := strings.IndexAny(seg, "\r\n"); i >= 0 {
+			seg = seg[:i]
+		}
+		s, err := parseURL(seg)
 		if err != nil {
 			// Never echo the link: its userinfo is the password.
-			errs = append(errs, fmt.Errorf("ss:// link %d: %w", n, err))
+			errs = append(errs, fmt.Errorf("ss:// link %d: %w", n+1, err))
 			continue
 		}
 		servers = append(servers, s)
@@ -35,13 +41,36 @@ func ParseURLs(text string) (servers []Server, errs []error) {
 	return servers, errs
 }
 
-func parseURL(link string) (Server, error) {
-	body, frag, _ := strings.Cut(link[5:], "#")
-	remarks, err := url.PathUnescape(frag)
-	if err != nil {
-		return Server{}, err
+// linkStarts returns the byte offsets of every case-insensitive "ss://".
+func linkStarts(text string) []int {
+	var out []int
+	for i := 0; i+5 <= len(text); i++ {
+		if strings.EqualFold(text[i:i+5], "ss://") {
+			out = append(out, i)
+			i += 4
+		}
+	}
+	return out
+}
+
+// bodyStop ends the part before "#": whitespace and quote characters.
+const bodyStop = " \t\"'<>“”‘’「」"
+
+func parseURL(seg string) (Server, error) {
+	body, frag, hasFrag := strings.Cut(seg, "#")
+	if i := strings.IndexAny(body, bodyStop); i >= 0 {
+		body, frag, hasFrag = body[:i], "", false
+	}
+	remarks := ""
+	if hasFrag {
+		frag = strings.TrimRight(strings.TrimSpace(frag), bodyStop)
+		var err error
+		if remarks, err = url.PathUnescape(frag); err != nil {
+			remarks = frag // e.g. "#100%": keep what the user wrote
+		}
 	}
 	s := Server{Remarks: remarks, Timeout: DefaultTimeout}
+	var err error
 	if strings.Contains(body, "@") {
 		err = parseSIP002(body, &s)
 	} else {

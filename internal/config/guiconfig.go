@@ -84,6 +84,9 @@ func Load(path string) (*Config, error) {
 	if c.Index < 0 || c.Index >= len(c.Configs) {
 		c.Index = 0
 	}
+	if c.LocalPort < 1 || c.LocalPort > 65535 {
+		c.LocalPort = Default().LocalPort // never point the system proxy at 127.0.0.1:0
+	}
 	return &c, nil
 }
 

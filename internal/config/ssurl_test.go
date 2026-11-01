@@ -102,3 +102,32 @@ func TestParseErrorRedacts(t *testing.T) {
 		}
 	}
 }
+
+// Deferred #1: links inside surrounding text, odd remarks.
+func TestParseURLsInText(t *testing.T) {
+	a := "ss://Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTpwYXNz@1.2.3.4:8388"
+	cases := []struct {
+		name, in string
+		remarks  []string
+	}{
+		{"glued to chinese text", "节点：" + a + "#东京", []string{"东京"}},
+		{"in quotes", `"` + a + `"`, []string{""}},
+		{"bom at start", string([]byte{0xEF, 0xBB, 0xBF}) + a, []string{""}},
+		{"bad percent escape kept raw", a + "#100%", []string{"100%"}},
+		{"space inside remark", a + "#Tokyo 1\n", []string{"Tokyo 1"}},
+		{"two links one line", a + "#x " + a + "#y", []string{"x", "y"}},
+		{"remark then text on next line", a + "#HK\n说明：下行", []string{"HK"}},
+	}
+	for _, tc := range cases {
+		got, errs := ParseURLs(tc.in)
+		if len(errs) != 0 || len(got) != len(tc.remarks) {
+			t.Errorf("%s: got %d servers, errs %v", tc.name, len(got), errs)
+			continue
+		}
+		for i, r := range tc.remarks {
+			if got[i].Remarks != r || got[i].Server != "1.2.3.4" {
+				t.Errorf("%s: server %d = %+v, want remark %q", tc.name, i, got[i], r)
+			}
+		}
+	}
+}

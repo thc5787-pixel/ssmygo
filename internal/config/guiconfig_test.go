@@ -228,3 +228,19 @@ func hasField(errs []FieldError, f string) bool {
 	}
 	return false
 }
+
+// Deferred #6: a damaged localPort must not become 127.0.0.1:0.
+func TestLoadClampsLocalPort(t *testing.T) {
+	dir := t.TempDir()
+	for _, port := range []string{"0", "-5", "70000"} {
+		path := filepath.Join(dir, "p"+port+".json")
+		os.WriteFile(path, []byte(`{"localPort":`+port+`}`), 0o644)
+		c, err := Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.LocalPort != 1080 {
+			t.Errorf("localPort %s loaded as %d", port, c.LocalPort)
+		}
+	}
+}
