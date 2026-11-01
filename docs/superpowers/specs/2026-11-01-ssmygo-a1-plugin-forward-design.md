@@ -79,6 +79,7 @@ type TrustedPlugin struct {
 ### 4.2 补丁 C（shadowsocks-go）
 
 - `service.ClientConfig` 新增 `DialerClient string \`json:"dialerClient,omitzero"\``：另一个客户端的名字，这个客户端通过它拨号，不再直连。
+- `service.ClientConfig` 新增 `DialTimeout jsoncfg.Duration \`json:"dialTimeout,omitzero"\``：只给注册的协议使用（前置代理的连接超时）。
 - 新增 `func (c *ClientConfig) innerStreamClient(...) (netio.StreamClient, error)`：
   - `DialerClient` 为空时，返回原来的 `innerTCPClient`；
   - 否则从 `streamClientByName` 里查这个名字，找不到就报错 `dialer client %q not found (it must be listed before %q)`。
