@@ -617,7 +617,6 @@ func TestSaveServersKeepsUnchangedInvalid(t *testing.T) {
 	}
 }
 
-
 // Deferred #4: errors are typed so the UI can translate them.
 func TestPortInUseErrorTyped(t *testing.T) {
 	e := newEnv(t)

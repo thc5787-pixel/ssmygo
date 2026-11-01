@@ -16,6 +16,7 @@ type MenuActions struct {
 	SetMode                            func(controller.Mode)
 	Select                             func(int)
 	EditServers, ImportClipboard, Quit func()
+	Forward                            func()
 	ToggleBoot, ToggleLAN              func(bool)
 	BootOn                             bool
 }
@@ -47,6 +48,7 @@ func BuildMenu(s controller.State, a MenuActions) *mygo.Menu {
 			mode("mode.global", controller.Global, T("Global")),
 		}},
 		{Label: T("Servers"), Submenu: servers},
+		{ID: "forward", Label: T("Forward Proxy..."), Click: func(*mygo.MenuItem, *mygo.Window) { a.Forward() }},
 		mygo.Separator(),
 		{ID: "boot", Label: T("Start on Boot"), Type: mygo.MenuItemCheckbox, Checked: a.BootOn,
 			Click: func(it *mygo.MenuItem, _ *mygo.Window) { a.ToggleBoot(it.IsChecked()) }},
@@ -71,6 +73,9 @@ func Tooltip(s controller.State, version string) string {
 		lines = append(lines, T("System Proxy On: ")+T("PAC"))
 	case controller.Global:
 		lines = append(lines, T("System Proxy On: ")+T("Global"))
+	}
+	if s.ForwardIgnored {
+		lines = append(lines, T("ssmygo.forwardIgnored"))
 	}
 	if s.LastError != "" {
 		msg := s.LastError
@@ -109,8 +114,10 @@ func RunTray(ctrl *controller.Controller, version string, logger *slog.Logger) e
 	}
 	var menu *mygo.Menu
 	actions := MenuActions{
-		SetMode:     func(m controller.Mode) { report(ctrl.SetMode(m)) },
-		Select:      func(i int) { report(ctrl.SelectServer(i)) },
+		// Off the main thread: a plugin may take up to 5 s to start (Review Focus 3).
+		SetMode:     func(m controller.Mode) { runAction(ctrl, logger, func() error { return ctrl.SetMode(m) }) },
+		Select:      func(i int) { runAction(ctrl, logger, func() error { return ctrl.SelectServer(i) }) },
+		Forward:     func() { OpenForwardWindow(ctrl) },
 		EditServers: func() { OpenConfigWindow(ctrl) },
 		ImportClipboard: func() {
 			added, errs := ctrl.ImportURLs(mygo.Clipboard.ReadText())
@@ -127,7 +134,7 @@ func RunTray(ctrl *controller.Controller, version string, logger *slog.Logger) e
 			Notify(logger, fmt.Sprintf(i18n.T("ssmygo.imported"), len(added), len(errs)))
 		},
 		Quit:      mygo.App.Quit,
-		ToggleLAN: func(on bool) { report(ctrl.SetShareLAN(on)) },
+		ToggleLAN: func(on bool) { runAction(ctrl, logger, func() error { return ctrl.SetShareLAN(on) }) },
 		ToggleBoot: func(on bool) {
 			report(mygo.App.SetOpenAtLogin(on))
 		},

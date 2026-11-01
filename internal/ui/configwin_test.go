@@ -237,18 +237,18 @@ func TestAppendServers(t *testing.T) {
 	}
 }
 
-// Plugins are P1: say so instead of letting the user think it will connect.
-func TestPluginServerWarned(t *testing.T) {
+// A1: plugin servers are supported, so no warning and no red row.
+func TestPluginServerNotWarned(t *testing.T) {
 	cfg := sample()
 	cfg.Configs = cfg.Configs[:1]
 	cfg.Configs[0].Plugin = "v2ray-plugin"
 	_, s, tt := newWin(cfg, nil)
 	tt.Frame()
-	if !tt.HasText("Plugins are not supported in this version.") {
-		t.Fatalf("no plugin warning; texts %q", tt.Texts())
+	if tt.HasText("Plugins are not supported in this version.") {
+		t.Fatal("stale P0 plugin warning")
 	}
 	tt.Click("OK")
 	if s.calls != 1 {
-		t.Fatal("a plugin server must still be savable")
+		t.Fatal("plugin server not savable")
 	}
 }

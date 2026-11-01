@@ -223,7 +223,7 @@ func (w *ConfigWindow) View(c *mui.Context) {
 		mui.Row(c).Grow(1).Gap(gap).AlignItems(mui.Stretch).Children(func() {
 			mui.List(c, &w.list, len(w.servers), func(i int) {
 				txt := mui.Text(c, w.title(i)).SingleLine().Padding(t.Space(1), t.Space(2))
-				if _, errs := w.servers[i].server(); len(errs) > 0 || strings.TrimSpace(w.servers[i].Plugin) != "" {
+				if _, errs := w.servers[i].server(); len(errs) > 0 {
 					txt.TextColor(t.Danger)
 				}
 			}).Width(180).Padding(t.Space(1)).Radius(t.Radius).Border(1, t.Border).
@@ -248,10 +248,7 @@ func (w *ConfigWindow) View(c *mui.Context) {
 						}).Error(errMsg(errs, "password"))
 						mui.Field(c, "", func() { mui.Checkbox(c, &w.showPass, T("Show Password")) })
 						mui.Field(c, T("Encryption"), func() { mui.Select(c, &e.Method, config.Methods) }).Error(errMsg(errs, "method"))
-						plugin := mui.Field(c, T("Plugin Program"), func() { mui.TextInput(c, &e.Plugin) })
-						if strings.TrimSpace(e.Plugin) != "" {
-							plugin.Description(T("ssmygo.pluginUnsupported")) // P1; warn, do not block saving
-						}
+						mui.Field(c, T("Plugin Program"), func() { mui.TextInput(c, &e.Plugin) })
 						mui.Field(c, T("Plugin Options"), func() { mui.TextInput(c, &e.PluginOpts).Disabled(e.Plugin == "") })
 						mui.Field(c, "", func() {
 							mui.Checkbox(c, &e.NeedArgs, T("Need Plugin Argument")).Disabled(e.Plugin == "")

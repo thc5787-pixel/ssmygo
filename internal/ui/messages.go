@@ -3,8 +3,11 @@ package ui
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
+	"strings"
 
 	"github.com/thc5787/ssmygo/internal/controller"
+	"github.com/thc5787/ssmygo/internal/core/plugin"
 	"github.com/thc5787/ssmygo/internal/i18n"
 )
 
@@ -14,17 +17,32 @@ func Message(err error) string {
 	if err == nil {
 		return ""
 	}
-	var port *controller.PortInUseError
-	var save *controller.SaveError
+	var (
+		port      *controller.PortInUseError
+		save      *controller.SaveError
+		untrusted *controller.PluginNotTrustedError
+		notFound  *plugin.NotFoundError
+		start     *plugin.StartError
+	)
 	switch {
 	case errors.As(err, &port):
 		return fmt.Sprintf(i18n.T("ssmygo.portInUse"), port.Port)
 	case errors.Is(err, controller.ErrNoServer):
 		return i18n.T("ssmygo.noServer")
-	case errors.Is(err, controller.ErrPluginUnsupported):
-		return i18n.T("ssmygo.pluginUnsupported")
 	case errors.As(err, &save):
 		return fmt.Sprintf(i18n.T("ssmygo.cannotSave"), save.Err)
+	case errors.As(err, &untrusted):
+		return fmt.Sprintf(i18n.T("ssmygo.pluginNotTrusted"), filepath.Base(untrusted.Path))
+	case errors.As(err, &notFound):
+		return fmt.Sprintf(i18n.T("ssmygo.pluginNotFound"), notFound.Name, strings.Join(notFound.Tried, "; "))
+	case errors.As(err, &start):
+		detail := strings.Join(start.Tail, " | ")
+		if detail == "" {
+			detail = start.Err.Error()
+		}
+		return fmt.Sprintf(i18n.T("ssmygo.pluginStart"), start.Name, detail)
+	case errors.Is(err, plugin.ErrCrashLoop):
+		return i18n.T("ssmygo.pluginCrashLoop")
 	}
 	return err.Error()
 }

@@ -34,7 +34,7 @@ func TestBuildMenu(t *testing.T) {
 	for _, it := range m.Items() {
 		labels = append(labels, it.Label)
 	}
-	if strings.Join(labels, "|") != "System Proxy|Servers||Start on Boot|Allow other Devices to connect||Quit" {
+	if strings.Join(labels, "|") != "System Proxy|Servers|Forward Proxy...||Start on Boot|Allow other Devices to connect||Quit" {
 		t.Fatalf("top level %q", labels)
 	}
 }
@@ -61,5 +61,25 @@ func TestTooltip(t *testing.T) {
 	}
 	if !strings.Contains(Tooltip(controller.State{}, "0.1.0"), "System Proxy Disabled") {
 		t.Error("disabled text")
+	}
+}
+
+func TestBuildMenuForward(t *testing.T) {
+	opened := false
+	m := BuildMenu(controller.State{}, MenuActions{Forward: func() { opened = true }})
+	it := m.ItemByID("forward")
+	if it == nil || it.Label != "Forward Proxy..." {
+		t.Fatalf("item %+v", it)
+	}
+	it.Click(it, nil)
+	if !opened {
+		t.Fatal("Forward action not called")
+	}
+}
+
+func TestTooltipForwardIgnored(t *testing.T) {
+	tip := Tooltip(controller.State{Mode: controller.Global, Servers: []string{"x"}, ForwardIgnored: true}, "0.1.0")
+	if !strings.Contains(tip, "Forward proxy: not used with this server's plugin") {
+		t.Fatalf("%q", tip)
 	}
 }

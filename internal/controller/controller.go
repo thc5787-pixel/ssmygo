@@ -84,8 +84,6 @@ func New(d Deps) (*Controller, error) {
 var (
 	// ErrNoServer: enabling the system proxy without a usable server.
 	ErrNoServer = errors.New("no server configured")
-	// ErrPluginUnsupported: SIP003 plugins arrive in P1.
-	ErrPluginUnsupported = errors.New("plugins are not supported in this version")
 )
 
 // PortInUseError: the local proxy port could not be listened on.

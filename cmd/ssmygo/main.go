@@ -59,7 +59,7 @@ func main() {
 		}
 		c, err := controller.New(controller.Deps{
 			Paths: paths, PortableRoot: portable, RoamingRoot: roaming,
-			Sys: sysproxy.Windows(), Logger: logger, DLC: assets.DLC(),
+			Sys: sysproxy.Windows(), Logger: logger, DLC: assets.DLC(), ExeDir: portable,
 		})
 		if err != nil {
 			logger.Error("load config", "err", err)
