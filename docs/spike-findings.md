@@ -40,6 +40,25 @@
 
 **尺寸**：使用原版尺寸 582×553 和 25px 行高，编辑服务器窗口能完整放下，渲染截图确认过。"下移"按钮在宽 100 时文字仍被截断，需要按文字宽度自适应或加宽到 110。
 
+## 界面规范（按 MyGo 设计文档修订，2026-11-01）
+
+用户在真机截图中指出：输入框文字偏下、列表没有边框、表单和按钮之间有空洞、按钮文字被截断。根据 MyGo 自带文档（`docs/ui/styling.md`、`form.md`、`layout.md`、`grid.md`）定下以下规则：
+
+| 规则 | 依据 | 原因 |
+|---|---|---|
+| 密度只通过主题调整：`t.Spacing = 3`（MyGo 的紧凑档），**不在控件上写死 `.Height()`** | styling.md "Spacing is the unit…" | 写死高度会挤掉内边距，文字就偏下了。`Spacing = 2` 会把复选框缩到不可用 |
+| 表单用 `ui.Form` → `ui.Fieldset("Server")` → `ui.Field`，不再自己用 Grid 拼 | form.md | 标签右对齐、和控件首行文字对齐、点击标签聚焦控件、无障碍分组，这些都由框架处理 |
+| 校验错误用 `Field.Error(msg)` 显示 | form.md / text-input.md | 红色边框加下方提示，读屏软件会读出来；不用弹窗 |
+| 尺寸用主题单位：间距 `t.Space(n)`，按钮最小宽度 `t.Rem(7)`；按钮不用固定宽度 | styling.md "Size your own elements with the theme" | 跟随系统字号缩放，不会截断文字 |
+| 列表和分组框都加 `Border(1, t.Border).Radius(t.Radius)`，两者 `AlignItems(Stretch)` 等高 | styling.md | 对应原版 Dock=Fill 的外观，不会出现空洞 |
+| 底部按钮区用 `ui.Grid` 6 列，`RowStart`/`ColumnStart` 定位 | grid.md | 对应原版的 tableLayoutPanel7 |
+| 表单区外层用 `ui.Scroll` | scroll.md | 多条错误提示同时出现时，在框内滚动，不会压住按钮 |
+| 不在网格里用空标签的 `Field`（例如代理端口） | 实测 | `Field` 会在上方预留标签行，输入框就和左边的标签错位；改为直接用 `Border(1, t.Danger)` 标红 |
+| 默认按钮：`Enter` = 确定，`Escape` = 取消 | button.md "A default button…" | 和原版对话框一致 |
+| `ListState.Label`：在列表里输入首字母即可定位 | list.md | 和 Explorer 行为一致 |
+
+**尺寸修订**：MyGo 控件在紧凑档下行高约 38 DIP（原版 WinForms 约 31px），编辑服务器窗口从 582×553 调整为 **582×620**，并把它设为最小尺寸。截图验证过：582×620 浅色、深色、850×618、校验出错四种状态都不会重叠。
+
 ## R4 细节：shadowsocks-go
 
 测试拓扑：socks5 客户端 → 客户端 Manager（socks5 → ss2022） → 服务端 Manager（ss2022 → direct） → echo，全部在本机回环地址上。
