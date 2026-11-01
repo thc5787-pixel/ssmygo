@@ -270,10 +270,22 @@ func (c *Controller) commit(next *config.Config) error {
 	prev := c.cfg
 	// A plugin must be running before the core can dial it; a newly started
 	// one is adopted only if the whole change succeeds.
-	started, port, err := c.preparePlugin(next)
-	if err != nil {
-		return c.fail(err)
+	started, port, pluginErr := c.preparePlugin(next)
+	if pluginErr != nil {
+		// A broken plugin (missing, replaced, crash-looped) only blocks
+		// changes that need it: switching/editing the current server or
+		// turning the proxy on. Disable and unrelated changes go through,
+		// keeping the plugin error visible (Review #1).
+		if pluginNeeded(prev, next) {
+			return c.fail(pluginErr)
+		}
+		started, port = nil, 0
 	}
+	defer func() {
+		if pluginErr != nil && c.lastErr == nil {
+			c.lastErr = pluginErr
+		}
+	}()
 	abort := func() {
 		if started != nil {
 			started.Stop()

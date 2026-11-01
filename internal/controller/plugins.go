@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -156,4 +157,19 @@ func (c *Controller) SetForwardProxy(p config.ForwardProxy) error {
 	next := c.cfg.Clone()
 	next.SetProxy(p)
 	return c.commit(next)
+}
+
+// pluginNeeded reports whether going from prev to next requires next's
+// plugin to run: a different (or edited) current server, or turning the
+// system proxy on.
+func pluginNeeded(prev, next *config.Config) bool {
+	ns, ok := next.Current()
+	if !ok || ns.Plugin == "" {
+		return false
+	}
+	ps, pok := prev.Current()
+	if !pok || !reflect.DeepEqual(ps, ns) {
+		return true
+	}
+	return next.Enabled && !prev.Enabled
 }

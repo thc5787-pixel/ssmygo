@@ -301,3 +301,59 @@ func equalFold(a, b string) bool {
 	}
 	return true
 }
+
+// breakPlugin starts the plugin server in Global mode, then kills the
+// plugin and removes its program (missing / updated / crash-looped plugin).
+func breakPlugin(t *testing.T) (*env, *Controller) {
+	t.Helper()
+	e, path := pluginEnv(t)
+	e.writeConfig(func(c *config.Config) { c.Configs = append(c.Configs, e.pluginServer("")) })
+	c := e.start()
+	trustNow(t, c, path)
+	if err := c.SelectServer(1); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetMode(Global); err != nil {
+		t.Fatal(err)
+	}
+	c.plug.Stop()
+	if err := os.Rename(path, path+".gone"); err != nil {
+		t.Fatal(err)
+	}
+	return e, c
+}
+
+// Review #1 (Critical): Disable must work while the plugin is broken.
+func TestDisableWithBrokenPlugin(t *testing.T) {
+	e, c := breakPlugin(t)
+	if err := c.SetMode(Disabled); err != nil {
+		t.Fatalf("Disable refused: %v", err)
+	}
+	if c.State().Mode != Disabled || e.sys.Cur != userProxy {
+		t.Fatalf("mode %v sys %+v", c.State().Mode, e.sys.Cur)
+	}
+}
+
+// Changes that do not need the plugin go through; the plugin error stays visible.
+func TestUnrelatedChangeWithBrokenPlugin(t *testing.T) {
+	_, c := breakPlugin(t)
+	if err := c.SetShareLAN(true); err != nil {
+		t.Fatalf("SetShareLAN refused: %v", err)
+	}
+	if !c.State().ShareLAN || c.State().Err == nil {
+		t.Fatalf("state %+v", c.State())
+	}
+}
+
+// Turning the proxy on still requires a working plugin.
+func TestEnableWithBrokenPluginFails(t *testing.T) {
+	e, c := breakPlugin(t)
+	c.SetMode(Disabled)
+	calls := len(e.sys.Calls)
+	if err := c.SetMode(Global); err == nil {
+		t.Fatal("enabled with a broken plugin")
+	}
+	if len(e.sys.Calls) != calls || c.State().Mode != Disabled {
+		t.Fatal("system proxy changed")
+	}
+}
