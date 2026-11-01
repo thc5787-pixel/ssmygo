@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -289,4 +290,25 @@ func countingRelay(t *testing.T, dst string, n *atomic.Int32) string {
 		}
 	}()
 	return ln.Addr().String()
+}
+
+// While a plugin server's plugin is not running, traffic meant for the
+// server fails instead of silently going direct.
+func TestPluginNotRunningFailsClosed(t *testing.T) {
+	cfg := config.Default()
+	cfg.LocalPort = freePort(t)
+	cfg.Global = true
+	cfg.Configs = []config.Server{{Server: "127.0.0.1", ServerPort: 9, Method: "aes-256-gcm", Password: "pw", Plugin: "v2ray-plugin"}}
+	sc, err := Build(cfg, nil, 0)
+	if !errors.Is(err, ErrPluginNotRunning) {
+		t.Fatal(err)
+	}
+	r := NewRunner(quietLogger())
+	defer r.Stop()
+	if err := r.Apply(sc); err != nil {
+		t.Fatal(err)
+	}
+	if err := socksEcho(cfg.LocalPort, echoServer(t), "leak?"); err == nil {
+		t.Fatal("traffic went direct while the plugin was not running")
+	}
 }

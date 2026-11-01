@@ -154,8 +154,11 @@ func TestBuildPluginNotRunningIsNoProxy(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 	for _, cl := range sc.Clients {
-		if cl.Name == "proxy" {
-			t.Fatal("plugin server dialed without its plugin")
+		if cl.Name == "proxy" && (cl.Protocol != "direct" || len(cl.IPDenylistPrefixes) != 2) {
+			t.Fatalf("plugin server without its plugin must fail closed: %+v", cl)
 		}
+	}
+	if sc.Router.DefaultTCPClientName != "proxy" {
+		t.Fatal("proxied traffic must go to the fail-closed client, not direct")
 	}
 }

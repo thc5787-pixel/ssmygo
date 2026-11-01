@@ -29,7 +29,8 @@ import (
 var ErrNoServer = errors.New("core: no server configured")
 
 // ErrPluginNotRunning: the current server needs its plugin, which is not
-// running; like ErrNoServer, Build returns a direct-only config.
+// running; Build returns a usable config in which that server's traffic
+// fails closed (see failClosedClient).
 var ErrPluginNotRunning = errors.New("core: plugin not running")
 
 const (
@@ -77,17 +78,23 @@ func Build(cfg *config.Config, rs *rules.Result, pluginPort int) (*service.Confi
 	if !ok || len(srv.Validate()) > 0 {
 		return sc, ErrNoServer
 	}
-	if srv.Plugin != "" && pluginPort == 0 {
-		return sc, ErrPluginNotRunning
-	}
-	if pluginPort > 0 {
+	// A plugin server whose plugin is not running fails closed: its traffic
+	// must neither bypass the plugin nor silently go direct.
+	pluginDown := srv.Plugin != "" && pluginPort == 0
+	var proxy service.ClientConfig
+	var err error
+	switch {
+	case pluginDown:
+		proxy = failClosedClient()
+	case pluginPort > 0:
 		srv.Server, srv.ServerPort = "127.0.0.1", pluginPort
+		fallthrough
+	default:
+		if proxy, err = proxyClient(srv); err != nil {
+			return sc, fmt.Errorf("%w: %v", ErrNoServer, err)
+		}
 	}
-	proxy, err := proxyClient(srv)
-	if err != nil {
-		return sc, fmt.Errorf("%w: %v", ErrNoServer, err)
-	}
-	if pluginPort == 0 && cfg.Proxy.UseProxy {
+	if !pluginDown && pluginPort == 0 && cfg.Proxy.UseProxy {
 		fc, err := forwardClient(cfg.Proxy)
 		if err != nil {
 			return sc, err
@@ -101,7 +108,7 @@ func Build(cfg *config.Config, rs *rules.Result, pluginPort int) (*service.Confi
 		sc.Router.DefaultTCPClientName = proxyName
 	}
 	if cfg.Global || rs == nil {
-		return sc, nil
+		return sc, notRunning(pluginDown)
 	}
 	sc.DomainSets = []domainset.Config{
 		{Name: "direct", Type: "gob", Path: rs.Direct},
@@ -114,7 +121,7 @@ func Build(cfg *config.Config, rs *rules.Result, pluginPort int) (*service.Confi
 		{Name: "direct", Network: "tcp", Client: directName, ToDomainSets: []string{"direct"}},
 		{Name: "proxied", Network: "tcp", Client: proxyName, ToDomainSets: []string{"proxied"}},
 	}
-	return sc, nil
+	return sc, notRunning(pluginDown)
 }
 
 func proxyClient(s config.Server) (service.ClientConfig, error) {
@@ -163,4 +170,19 @@ func forwardClient(p config.ForwardProxy) (service.ClientConfig, error) {
 		c.Socks5.Username, c.Socks5.Password = p.AuthUser, p.AuthPwd
 	}
 	return c, nil
+}
+
+func notRunning(pluginDown bool) error {
+	if pluginDown {
+		return ErrPluginNotRunning
+	}
+	return nil
+}
+
+// failClosedClient stands in for a server that cannot be reached right now:
+// a direct client whose denylist covers every address, so every connection
+// meant for the server fails instead of going out unproxied.
+func failClosedClient() service.ClientConfig {
+	return service.ClientConfig{Name: proxyName, Protocol: "direct", EnableTCP: true,
+		IPDenylistPrefixes: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("::/0")}}
 }
