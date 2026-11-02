@@ -24,6 +24,7 @@ import (
 	"github.com/thc5787/ssmygo/internal/config"
 	"github.com/thc5787/ssmygo/internal/core/legacyaead/aeadtest"
 	"github.com/thc5787/ssmygo/internal/rules"
+	"github.com/thc5787/ssmygo/internal/traffic"
 )
 
 func quietLogger() *tslog.Logger {
@@ -128,7 +129,7 @@ func TestRunnerEndToEnd(t *testing.T) {
 	}
 	ups = append(ups, upstream{"none", "", ssgoServer(t, "none", nil)})
 
-	r := NewRunner(quietLogger())
+	r := NewRunner(quietLogger(), nil)
 	defer r.Stop()
 	for _, u := range ups {
 		t.Run(u.method, func(t *testing.T) {
@@ -159,7 +160,7 @@ func TestRunnerApplyBusyPort(t *testing.T) {
 	cfg := config.Default()
 	cfg.LocalPort = ln.Addr().(*net.TCPAddr).Port
 	sc, _ := Build(cfg, nil, 0)
-	r := NewRunner(quietLogger())
+	r := NewRunner(quietLogger(), nil)
 	defer r.Stop()
 	if err := r.Apply(sc); err == nil || !strings.Contains(err.Error(), "bind") {
 		t.Fatalf("err = %v", err)
@@ -175,7 +176,7 @@ func TestRunnerReapply(t *testing.T) {
 	target := echoServer(t)
 	cfg := config.Default()
 	cfg.LocalPort = freePort(t)
-	r := NewRunner(quietLogger())
+	r := NewRunner(quietLogger(), nil)
 	defer r.Stop()
 	for i := 0; i < 3; i++ {
 		sc, _ := Build(cfg, nil, 0) // ErrNoServer: direct only
@@ -203,7 +204,7 @@ func TestRunnerAppliesRulesMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := NewRunner(quietLogger())
+	r := NewRunner(quietLogger(), nil)
 	defer r.Stop()
 	if err := r.Apply(sc); err != nil {
 		t.Fatalf("rules mode does not start: %v", err)
@@ -230,7 +231,7 @@ func TestRunnerThroughForward(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := NewRunner(quietLogger())
+	r := NewRunner(quietLogger(), nil)
 	defer r.Stop()
 	if err := r.Apply(sc); err != nil {
 		t.Fatal(err)
@@ -297,7 +298,7 @@ func TestPluginNotRunningFailsClosed(t *testing.T) {
 	if !errors.Is(err, ErrPluginNotRunning) {
 		t.Fatal(err)
 	}
-	r := NewRunner(quietLogger())
+	r := NewRunner(quietLogger(), nil)
 	defer r.Stop()
 	if err := r.Apply(sc); err != nil {
 		t.Fatal(err)
@@ -370,7 +371,7 @@ func TestRunnerUDPEndToEnd(t *testing.T) {
 		{"2022-blake3-aes-128-gcm", base64.StdEncoding.EncodeToString(psk), ssgoServer(t, "2022-blake3-aes-128-gcm", psk)},
 		{"none", "", ssgoServer(t, "none", nil)},
 	}
-	r := NewRunner(quietLogger())
+	r := NewRunner(quietLogger(), nil)
 	defer r.Stop()
 	for _, c := range cases {
 		t.Run(c.method, func(t *testing.T) {
@@ -387,7 +388,7 @@ func TestRunnerUDPEndToEnd(t *testing.T) {
 func TestRunnerUDPConcurrentSessions(t *testing.T) {
 	target := udpEcho(t)
 	srv := aeadtest.StartUDP(t, "aes-128-gcm", "pw")
-	r := NewRunner(quietLogger())
+	r := NewRunner(quietLogger(), nil)
 	defer r.Stop()
 	port := applyGlobal(t, r, config.Server{Server: "127.0.0.1", ServerPort: int(srv.Addr.Port()), Method: "aes-128-gcm", Password: "pw"}, 0)
 	errs := make(chan error, 20)
@@ -426,7 +427,7 @@ func TestRunnerUDPPluginServer(t *testing.T) {
 	}
 	defer plugin.Close()
 	s := config.Server{Server: "127.0.0.1", ServerPort: int(srv.Addr.Port()), Method: "aes-256-gcm", Password: "pw", Plugin: "fake-plugin"}
-	r := NewRunner(quietLogger())
+	r := NewRunner(quietLogger(), nil)
 	defer r.Stop()
 	port := applyGlobal(t, r, s, plugin.Addr().(*net.TCPAddr).Port)
 	if err := udpExchange(associate(t, port), target, "via server", 3*time.Second); err != nil {
@@ -449,7 +450,7 @@ func TestRunnerUDPOffWithForward(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := NewRunner(quietLogger())
+	r := NewRunner(quietLogger(), nil)
 	defer r.Stop()
 	if err := r.Apply(sc); err != nil {
 		t.Fatal(err)
@@ -471,7 +472,7 @@ func TestRunnerUDPPortBusy(t *testing.T) {
 	cfg := config.Default()
 	cfg.LocalPort = u.LocalAddr().(*net.UDPAddr).Port
 	sc, _ := Build(cfg, nil, 0)
-	r := NewRunner(quietLogger())
+	r := NewRunner(quietLogger(), nil)
 	defer r.Stop()
 	err = r.Apply(sc)
 	var op *net.OpError
@@ -500,7 +501,7 @@ func TestRunnerUDPRoutesEveryPacket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := NewRunner(quietLogger())
+	r := NewRunner(quietLogger(), nil)
 	defer r.Stop()
 	if err := r.Apply(sc); err != nil {
 		t.Fatal(err)
@@ -529,5 +530,33 @@ func TestRunnerUDPRoutesEveryPacket(t *testing.T) {
 	}
 	if srv.Packets() != 1 {
 		t.Fatalf("private target reached the server after a proxied packet")
+	}
+}
+
+// Patch A4 end to end: legacy AEAD UDP is counted by payload, not by the
+// encrypted size.
+func TestRunnerCountsUDPPayload(t *testing.T) {
+	target := udpEcho(t)
+	srv := aeadtest.StartUDP(t, "aes-256-gcm", "pw")
+	var m traffic.Meter
+	r := NewRunner(quietLogger(), &m)
+	defer r.Stop()
+	port := applyGlobal(t, r, config.Server{Server: "127.0.0.1", ServerPort: int(srv.Addr.Port()), Method: "aes-256-gcm", Password: "pw"}, 0)
+	if err := udpExchange(associate(t, port), target, strings.Repeat("x", 1200), 3*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if up, down := m.Totals(); up != 1200 || down != 1200 {
+		t.Fatalf("meter %d/%d, want 1200/1200", up, down)
+	}
+}
+
+func TestRunnerNilMeter(t *testing.T) {
+	target := udpEcho(t)
+	srv := aeadtest.StartUDP(t, "aes-256-gcm", "pw")
+	r := NewRunner(quietLogger(), nil)
+	defer r.Stop()
+	port := applyGlobal(t, r, config.Server{Server: "127.0.0.1", ServerPort: int(srv.Addr.Port()), Method: "aes-256-gcm", Password: "pw"}, 0)
+	if err := udpExchange(associate(t, port), target, "no meter", 3*time.Second); err != nil {
+		t.Fatal(err)
 	}
 }

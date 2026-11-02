@@ -406,6 +406,11 @@ type ServerConfig struct {
 	// The value is used for calculating UDP receive buffer size.
 	MTU int `json:"mtu,omitzero"`
 
+	// TrafficMeter, set in Go by the embedding app, receives relayed
+	// payload byte counts (ssmygo patch A4). nil disables counting. The UDP
+	// NAT relay reports to it; other relays do not.
+	TrafficMeter TrafficMeter `json:"-"`
+
 	// Single listener configuration.
 
 	Listen               string `json:"listen,omitzero"`
@@ -813,7 +818,7 @@ func (sc *ServerConfig) UDPRelay(logger *tslog.Logger, maxClientPackerHeadroom z
 
 	switch sc.Protocol {
 	case "direct", "none", "plain", "socks5":
-		return NewUDPNATRelay(sc.Name, sc.index, sc.MTU, packetBufHeadroom.Front, packetBufRecvSize, packetBufSize, listeners, natServer, sc.collector, sc.router, sc.logger), nil
+		return NewUDPNATRelay(sc.Name, sc.index, sc.MTU, packetBufHeadroom.Front, packetBufRecvSize, packetBufSize, listeners, natServer, sc.collector, sc.TrafficMeter, sc.router, sc.logger), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		return NewUDPSessionRelay(sc.Name, sc.index, sc.MTU, packetBufHeadroom.Front, packetBufRecvSize, packetBufSize, listeners, sessionServer, sc.collector, sc.router, sc.logger), nil
 	case "tproxy":

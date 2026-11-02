@@ -91,6 +91,7 @@ type UDPNATRelay struct {
 	listeners              []udpRelayServerConn
 	server                 zerocopy.UDPNATServer
 	collector              stats.Collector
+	meter                  TrafficMeter // ssmygo patch A4; may be nil
 	router                 *router.Router
 	logger                 *tslog.Logger
 	queuedPacketPool       sync.Pool
@@ -106,6 +107,7 @@ func NewUDPNATRelay(
 	listeners []udpRelayServerConn,
 	server zerocopy.UDPNATServer,
 	collector stats.Collector,
+	meter TrafficMeter,
 	router *router.Router,
 	logger *tslog.Logger,
 ) *UDPNATRelay {
@@ -118,6 +120,7 @@ func NewUDPNATRelay(
 		listeners:              listeners,
 		server:                 server,
 		collector:              collector,
+		meter:                  meter,
 		router:                 router,
 		logger:                 logger,
 		queuedPacketPool: sync.Pool{
@@ -243,6 +246,9 @@ func (s *UDPNATRelay) recvFromServerConnGeneric(ctx context.Context, lnc *udpRel
 
 		packetsReceived++
 		payloadBytesReceived += uint64(queuedPacket.length)
+		if s.meter != nil {
+			s.meter.Add(uint64(queuedPacket.length), 0)
+		}
 
 		cmsg := cmsgBuf[:cmsgn]
 
@@ -596,6 +602,8 @@ func (s *UDPNATRelay) relayNatConnToServerConnGeneric(downlink natDownlinkGeneri
 				slog.Int("packetLength", packetLength),
 				tslog.Err(err),
 			)
+		} else if s.meter != nil {
+			s.meter.Add(0, uint64(payloadLength))
 		}
 
 		packetsSent++

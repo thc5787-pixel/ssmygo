@@ -61,7 +61,7 @@ func New(d Deps) (*Controller, error) {
 		paths: d.Paths,
 		// Warn: at Info the core logs every connection's destination, which
 		// would write a browsing history next to a portable exe.
-		runner: core.NewRunner(tslog.Config{Level: slog.LevelWarn}.NewLoggerWithHandler(d.Logger.Handler())),
+		runner: core.NewRunner(tslog.Config{Level: slog.LevelWarn}.NewLoggerWithHandler(d.Logger.Handler()), nil),
 		subs:   map[int]func(State){},
 	}
 	cfg, err := config.Load(d.Paths.Config())

@@ -94,3 +94,24 @@ Tests: `internal/core` `TestRunnerUDPRoutesEveryPacket`.
 Diff vs previous state:
      third_party/shadowsocks-go/service/udp_nat.go | 108 +++++++++++++++-----------
      1 file changed, 64 insertions(+), 44 deletions(-)
+
+## Patch A4 — traffic meter in the UDP NAT relay
+
+shadowsocks-go's `stats` only adds a session's bytes when it ends, too late
+for a live rate display. ssmygo counts bytes as they move.
+
+- `service/meter.go`: `TrafficMeter` interface (`Add(up, down uint64)`).
+- `service/server.go`: `ServerConfig.TrafficMeter` (`json:"-"`, set in Go;
+  nil = off), passed to `NewUDPNATRelay`.
+- `service/udp_nat.go`: `Add(payload, 0)` after a client packet is unpacked;
+  `Add(0, payload)` after a reply is written back to the client. Payload
+  bytes only (no SOCKS header, no encryption). Other relays are unchanged.
+
+Tests: `service/meter_test.go`; `internal/core` `TestRunnerCountsUDPPayload`.
+
+Diff vs previous state:
+     third_party/shadowsocks-go/service/server.go  | 7 ++++++-
+     third_party/shadowsocks-go/service/udp_nat.go | 8 ++++++++
+     2 files changed, 14 insertions(+), 1 deletion(-)
+    ?? third_party/shadowsocks-go/service/meter.go
+    ?? third_party/shadowsocks-go/service/meter_test.go
