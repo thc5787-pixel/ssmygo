@@ -51,7 +51,7 @@ func TestTrayIconColors(t *testing.T) {
 	}
 	for mode, cols := range want {
 		for i, dark := range []bool{false, true} {
-			img, r, g, b := dominant(t, TrayIcon(mode, dark))
+			img, r, g, b := dominant(t, TrayIcon(mode, dark, BadgeNone))
 			if img.Bounds().Dx() != 32 || img.Bounds().Dy() != 32 {
 				t.Errorf("%v dark=%v: size %v", mode, dark, img.Bounds())
 			}
@@ -96,6 +96,24 @@ func TestGenerateUpToDate(t *testing.T) {
 		b, _ := os.ReadFile(committed)
 		if !bytes.Equal(a, b) {
 			t.Errorf("%s differs from a fresh generation; run go generate ./internal/ui", committed)
+		}
+	}
+}
+
+func TestTrayIconBadgesDiffer(t *testing.T) {
+	seen := map[string]Badge{}
+	for _, b := range []Badge{BadgeNone, BadgeIn, BadgeOut, BadgeBoth} {
+		png1 := TrayIcon(controller.Global, false, b)
+		img, err := png.Decode(bytes.NewReader(png1))
+		if err != nil || img.Bounds().Dx() != 32 || img.Bounds().Dy() != 32 {
+			t.Fatalf("badge %v: %v %v", b, err, img.Bounds())
+		}
+		if prev, dup := seen[string(png1)]; dup {
+			t.Fatalf("badge %v renders like %v", b, prev)
+		}
+		seen[string(png1)] = b
+		if again := TrayIcon(controller.Global, false, b); &again[0] != &png1[0] {
+			t.Fatalf("badge %v not cached", b)
 		}
 	}
 }

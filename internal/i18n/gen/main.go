@@ -26,6 +26,7 @@ var keys = []string{
 	"Timeout(Sec)", "&Add", "&Delete", "Dupli&cate", "Move &Up", "Move D&own", "Proxy Port",
 	"Portable Mode", "OK", "Cancel", "Apply", "System Proxy On: ", "System Proxy Disabled", "Shadowsocks",
 	"Forward Proxy...",
+	"Help", "Show Logs...", "Show Plugin Output",
 }
 
 // resxNames are WPF strings (Localization/Strings*.resx), stored as "resx.<name>".

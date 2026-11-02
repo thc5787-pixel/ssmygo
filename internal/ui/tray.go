@@ -10,6 +10,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/thc5787/ssmygo/internal/controller"
 	"github.com/thc5787/ssmygo/internal/i18n"
+	"github.com/thc5787/ssmygo/internal/traffic"
 )
 
 // MenuActions are what the tray menu items do.
@@ -20,6 +21,8 @@ type MenuActions struct {
 	Forward                            func()
 	ToggleBoot, ToggleLAN              func(bool)
 	BootOn                             bool
+	ShowLogs                           func()
+	TogglePluginOutput                 func(bool)
 }
 
 // BuildMenu builds the P0 tray menu (spec §4.6) for state s.
@@ -55,13 +58,19 @@ func BuildMenu(s controller.State, a MenuActions) *mygo.Menu {
 			Click: func(it *mygo.MenuItem, _ *mygo.Window) { a.ToggleBoot(it.IsChecked()) }},
 		{ID: "lan", Label: T("Allow other Devices to connect"), Type: mygo.MenuItemCheckbox, Checked: s.ShareLAN,
 			Click: func(it *mygo.MenuItem, _ *mygo.Window) { a.ToggleLAN(it.IsChecked()) }},
+		{Label: T("Help"), Submenu: []*mygo.MenuItem{
+			{ID: "help.logs", Label: T("Show Logs..."), Click: func(*mygo.MenuItem, *mygo.Window) { a.ShowLogs() }},
+			{ID: "help.pluginOutput", Label: T("Show Plugin Output"), Type: mygo.MenuItemCheckbox, Checked: s.ShowPluginOutput,
+				Click: func(it *mygo.MenuItem, _ *mygo.Window) { a.TogglePluginOutput(it.IsChecked()) }},
+		}},
 		mygo.Separator(),
 		{ID: "quit", Label: T("Quit"), Click: func(*mygo.MenuItem, *mygo.Window) { a.Quit() }},
 	})
 }
 
-// Tooltip is the tray hover text: version, server, mode and any error.
-func Tooltip(s controller.State, version string) string {
+// Tooltip is the tray hover text: version, server, mode, the last second's
+// rates while traffic flows, and any error.
+func Tooltip(s controller.State, version string, rate traffic.Sample) string {
 	T := i18n.T
 	lines := []string{"ssmygo " + version}
 	if s.Current >= 0 && s.Current < len(s.Servers) {
@@ -74,6 +83,9 @@ func Tooltip(s controller.State, version string) string {
 		lines = append(lines, T("System Proxy On: ")+T("PAC"))
 	case controller.Global:
 		lines = append(lines, T("System Proxy On: ")+T("Global"))
+	}
+	if rate != (traffic.Sample{}) {
+		lines = append(lines, "↑ "+traffic.FormatRate(rate.Up)+" ↓ "+traffic.FormatRate(rate.Down))
 	}
 	if s.ForwardIgnored {
 		lines = append(lines, T("ssmygo.forwardIgnored"))
@@ -107,7 +119,7 @@ func Notify(logger *slog.Logger, body string) {
 // Call it on the main thread after the app is ready.
 func RunTray(ctrl *controller.Controller, version string, logger *slog.Logger) error {
 	s := ctrl.State()
-	tray, err := mygo.NewTray(mygo.TrayOptions{ID: "ssmygo", Icon: TrayIcon(s.Mode, false), ToolTip: Tooltip(s, version)})
+	tray, err := mygo.NewTray(mygo.TrayOptions{ID: "ssmygo", Icon: TrayIcon(s.Mode, false, BadgeNone), ToolTip: Tooltip(s, version, traffic.Sample{})})
 	if err != nil {
 		return err
 	}
@@ -147,16 +159,35 @@ func RunTray(ctrl *controller.Controller, version string, logger *slog.Logger) e
 		ToggleBoot: func(on bool) {
 			report(mygo.App.SetOpenAtLogin(on))
 		},
+		ShowLogs: func() { openLogWindow(ctrl) },
+		TogglePluginOutput: func(on bool) {
+			runAction(ctrl, logger, func() error { return ctrl.SetShowPluginOutput(on) })
+		},
 	}
+	u := &trayUpdater{
+		setIcon: func(p []byte) { tray.SetIcon(p, false) },
+		setTip:  tray.SetToolTip,
+		version: version,
+		badge:   -1, // force the first apply
+	}
+	var rate traffic.Sample // last second's traffic; main thread only
 	// refresh uses only s: subscribers run while the controller holds its lock.
 	refresh := func(s controller.State) {
 		actions.BootOn = mygo.App.OpenAtLogin()
 		menu = BuildMenu(s, actions)
-		tray.SetIcon(TrayIcon(s.Mode, tray.Dark()), false)
-		tray.SetToolTip(Tooltip(s, version))
+		u.force()
+		u.apply(s, rate, tray.Dark())
 	}
 	refresh(s)
 	last := s
+	// Traffic arrives every second off the main thread; the icon and the
+	// tooltip change only when what they show changes (Review Focus 4).
+	ctrl.SubscribeTraffic(func(snap traffic.Snapshot) {
+		mygo.RunOnMain(func() {
+			rate = snap.Rate
+			u.apply(last, rate, tray.Dark())
+		})
+	})
 	ctrl.Subscribe(func(s controller.State) {
 		mygo.RunOnMain(func() {
 			refresh(s)
@@ -193,3 +224,33 @@ func pluginAlert(prev, cur controller.State) (msg string, retrust bool) {
 	}
 	return Message(cur.PluginFailure), false
 }
+
+// trayUpdater pushes icon and tooltip changes to the tray, skipping
+// repeats so a steady stream of traffic does not redraw every second.
+type trayUpdater struct {
+	setIcon func([]byte)
+	setTip  func(string)
+	version string
+
+	mode  controller.Mode
+	dark  bool
+	badge Badge
+	tip   string
+}
+
+// force makes the next apply update both, e.g. after a mode change.
+func (u *trayUpdater) force() { u.badge, u.tip = -1, "" }
+
+func (u *trayUpdater) apply(s controller.State, rate traffic.Sample, dark bool) {
+	if b := BadgeFor(rate); b != u.badge || s.Mode != u.mode || dark != u.dark {
+		u.badge, u.mode, u.dark = b, s.Mode, dark
+		u.setIcon(TrayIcon(s.Mode, dark, b))
+	}
+	if tip := Tooltip(s, u.version, rate); tip != u.tip {
+		u.tip = tip
+		u.setTip(tip)
+	}
+}
+
+// openLogWindow opens the log viewer (set by logwin.go).
+var openLogWindow = func(*controller.Controller) {}
