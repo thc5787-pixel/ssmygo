@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/thc5787/ssmygo/internal/core/socks5test"
 	"io"
 	"log/slog"
 	"net"
@@ -100,14 +101,7 @@ func (e *env) diskConfig() *config.Config {
 	return c
 }
 
-func freePort(t *testing.T) int {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	return ln.Addr().(*net.TCPAddr).Port
-}
+func freePort(t *testing.T) int { return socks5test.FreePort(t) }
 
 func echoServer(t *testing.T) netip.AddrPort {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -671,5 +665,23 @@ func TestSubscriberMayCallController(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("deadlock: subscriber called State() under the controller lock")
+	}
+}
+
+// Review Focus 4: a busy UDP port alone is reported like a busy TCP port.
+func TestUDPPortBusyIsPortInUse(t *testing.T) {
+	e := newEnv(t)
+	e.writeConfig(nil)
+	c := e.start()
+	busy, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer busy.Close()
+	port := busy.LocalAddr().(*net.UDPAddr).Port
+	err = c.SaveServers([]config.Server{e.server()}, 0, port, true)
+	var pe *PortInUseError
+	if !errors.As(err, &pe) || pe.Port != port {
+		t.Fatalf("err %T %v", err, err)
 	}
 }

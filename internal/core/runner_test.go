@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/thc5787/ssmygo/internal/core/socks5test"
 	"io"
 	"net"
 	"net/netip"
@@ -30,15 +31,7 @@ func quietLogger() *tslog.Logger {
 	return l
 }
 
-func freePort(t *testing.T) int {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	return ln.Addr().(*net.TCPAddr).Port
-}
+func freePort(t *testing.T) int { return socks5test.FreePort(t) }
 
 func echoServer(t *testing.T) netip.AddrPort {
 	t.Helper()
@@ -67,8 +60,9 @@ func ssgoServer(t *testing.T, protocol string, psk []byte) netip.AddrPort {
 	if psk != nil {
 		pskJSON = fmt.Sprintf(`,"psk":%q`, base64.StdEncoding.EncodeToString(psk))
 	}
-	js := fmt.Sprintf(`{"servers":[{"name":"up","protocol":%q,"tcpListeners":[{"network":"tcp","address":%q}]%s}],
-		"clients":[{"name":"direct","protocol":"direct","enableTCP":true}]}`, protocol, addr, pskJSON)
+	js := fmt.Sprintf(`{"servers":[{"name":"up","protocol":%[1]q,"mtu":1500,"tcpListeners":[{"network":"tcp","address":%[2]q}],
+		"udpListeners":[{"network":"udp","address":%[2]q}]%[3]s}],
+		"clients":[{"name":"direct","protocol":"direct","enableTCP":true,"enableUDP":true,"mtu":1500}]}`, protocol, addr, pskJSON)
 	var sc service.Config
 	if err := json.Unmarshal([]byte(js), &sc); err != nil {
 		t.Fatal(err)
@@ -310,5 +304,182 @@ func TestPluginNotRunningFailsClosed(t *testing.T) {
 	}
 	if err := socksEcho(cfg.LocalPort, echoServer(t), "leak?"); err == nil {
 		t.Fatal("traffic went direct while the plugin was not running")
+	}
+}
+
+func udpEcho(t *testing.T) netip.AddrPort {
+	t.Helper()
+	a, stop, err := socks5test.UDPEcho()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(stop)
+	return a
+}
+
+// udpExchange sends msg to target over a UDP association and waits for it back.
+func udpExchange(s *socks5test.Session, target netip.AddrPort, msg string, wait time.Duration) error {
+	if err := s.Send(target.String(), []byte(msg)); err != nil {
+		return err
+	}
+	got, err := s.Recv(wait)
+	if err != nil {
+		return err
+	}
+	if string(got) != msg {
+		return fmt.Errorf("echo %q, want %q", got, msg)
+	}
+	return nil
+}
+
+func applyGlobal(t *testing.T, r *Runner, s config.Server, pluginPort int) int {
+	t.Helper()
+	cfg := config.Default()
+	cfg.LocalPort = freePort(t)
+	cfg.Global = true
+	cfg.Configs = []config.Server{s}
+	sc, err := Build(cfg, nil, pluginPort)
+	if err != nil && !errors.Is(err, ErrPluginNotRunning) {
+		t.Fatal(err)
+	}
+	if err := r.Apply(sc); err != nil {
+		t.Fatal(err)
+	}
+	return cfg.LocalPort
+}
+
+func associate(t *testing.T, port int) *socks5test.Session {
+	t.Helper()
+	s, err := socks5test.Associate(fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.Close)
+	return s
+}
+
+func TestRunnerUDPEndToEnd(t *testing.T) {
+	target := udpEcho(t)
+	psk := make([]byte, 16)
+	rand.Read(psk)
+	cases := []struct {
+		method, password string
+		addr             netip.AddrPort
+	}{
+		{"aes-256-gcm", "pw", aeadtest.StartUDP(t, "aes-256-gcm", "pw").Addr},
+		{"2022-blake3-aes-128-gcm", base64.StdEncoding.EncodeToString(psk), ssgoServer(t, "2022-blake3-aes-128-gcm", psk)},
+		{"none", "", ssgoServer(t, "none", nil)},
+	}
+	r := NewRunner(quietLogger())
+	defer r.Stop()
+	for _, c := range cases {
+		t.Run(c.method, func(t *testing.T) {
+			port := applyGlobal(t, r, config.Server{Server: c.addr.Addr().String(), ServerPort: int(c.addr.Port()), Method: c.method, Password: c.password}, 0)
+			s := associate(t, port)
+			if err := udpExchange(s, target, "udp "+c.method, 3*time.Second); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// Review Focus 2: parallel associations each get only their own replies.
+func TestRunnerUDPConcurrentSessions(t *testing.T) {
+	target := udpEcho(t)
+	srv := aeadtest.StartUDP(t, "aes-128-gcm", "pw")
+	r := NewRunner(quietLogger())
+	defer r.Stop()
+	port := applyGlobal(t, r, config.Server{Server: "127.0.0.1", ServerPort: int(srv.Addr.Port()), Method: "aes-128-gcm", Password: "pw"}, 0)
+	errs := make(chan error, 20)
+	for i := range 20 {
+		go func() {
+			s, err := socks5test.Associate(fmt.Sprintf("127.0.0.1:%d", port))
+			if err != nil {
+				errs <- err
+				return
+			}
+			defer s.Close()
+			for j := range 5 {
+				if err := udpExchange(s, target, fmt.Sprintf("session %d packet %d", i, j), 3*time.Second); err != nil {
+					errs <- fmt.Errorf("session %d: %w", i, err)
+					return
+				}
+			}
+			errs <- nil
+		}()
+	}
+	for range 20 {
+		if err := <-errs; err != nil {
+			t.Error(err)
+		}
+	}
+}
+
+// Review Focus 5: TCP goes to the plugin, UDP to the real server; with the
+// plugin down UDP fails closed.
+func TestRunnerUDPPluginServer(t *testing.T) {
+	target := udpEcho(t)
+	srv := aeadtest.StartUDP(t, "aes-256-gcm", "pw")
+	plugin, err := net.Listen("tcp", "127.0.0.1:0") // a plugin that never relays UDP
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plugin.Close()
+	s := config.Server{Server: "127.0.0.1", ServerPort: int(srv.Addr.Port()), Method: "aes-256-gcm", Password: "pw", Plugin: "fake-plugin"}
+	r := NewRunner(quietLogger())
+	defer r.Stop()
+	port := applyGlobal(t, r, s, plugin.Addr().(*net.TCPAddr).Port)
+	if err := udpExchange(associate(t, port), target, "via server", 3*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	port = applyGlobal(t, r, s, 0)
+	if err := udpExchange(associate(t, port), target, "leak?", time.Second); err == nil {
+		t.Fatal("UDP went out while the plugin was not running")
+	}
+}
+
+// A2-D2: forward proxy on → UDP ASSOCIATE refused.
+func TestRunnerUDPOffWithForward(t *testing.T) {
+	cfg := config.Default()
+	cfg.LocalPort = freePort(t)
+	cfg.Global = true
+	cfg.Configs = []config.Server{{Server: "127.0.0.1", ServerPort: 9, Method: "aes-256-gcm", Password: "pw"}}
+	cfg.Proxy = config.ForwardProxy{UseProxy: true, ProxyType: config.ProxySOCKS5, ProxyServer: "127.0.0.1", ProxyPort: 9, ProxyTimeout: 3}
+	sc, err := Build(cfg, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewRunner(quietLogger())
+	defer r.Stop()
+	if err := r.Apply(sc); err != nil {
+		t.Fatal(err)
+	}
+	_, err = socks5test.Associate(fmt.Sprintf("127.0.0.1:%d", cfg.LocalPort))
+	var refused socks5test.ErrRefused
+	if !errors.As(err, &refused) || refused.Reply != 7 {
+		t.Fatalf("err = %v, want refused 7", err)
+	}
+}
+
+// Review Focus 4: only the UDP port is taken → a listen error, nothing runs.
+func TestRunnerUDPPortBusy(t *testing.T) {
+	u, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer u.Close()
+	cfg := config.Default()
+	cfg.LocalPort = u.LocalAddr().(*net.UDPAddr).Port
+	sc, _ := Build(cfg, nil, 0)
+	r := NewRunner(quietLogger())
+	defer r.Stop()
+	err = r.Apply(sc)
+	var op *net.OpError
+	if !errors.As(err, &op) || op.Op != "listen" {
+		t.Fatalf("err = %v, want a listen *net.OpError", err)
+	}
+	if c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", cfg.LocalPort), 300*time.Millisecond); err == nil {
+		c.Close()
+		t.Fatal("TCP listener left running after the UDP listen failed")
 	}
 }

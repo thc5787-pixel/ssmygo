@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/database64128/shadowsocks-go/service"
 	"github.com/thc5787/ssmygo/internal/config"
 	"github.com/thc5787/ssmygo/internal/rules"
 )
@@ -62,6 +63,11 @@ func TestBuildGolden(t *testing.T) {
 			c.Proxy = fwd(config.ProxySOCKS5)
 			return c, sampleRules, 41234
 		},
+		"plugin-down": func() (*config.Config, *rules.Result, int) {
+			c := sampleConfig()
+			c.Configs[0].Plugin = "v2ray-plugin"
+			return c, sampleRules, 0
+		},
 		"ss2022": func() (*config.Config, *rules.Result, int) {
 			c := sampleConfig()
 			c.Configs[0].Method, c.Configs[0].Password = "2022-blake3-aes-128-gcm", "AAECAwQFBgcICQoLDA0ODw=="
@@ -72,7 +78,7 @@ func TestBuildGolden(t *testing.T) {
 	for name, mk := range cases {
 		cfg, rs, port := mk()
 		sc, err := Build(cfg, rs, port)
-		if err != nil {
+		if err != nil && !errors.Is(err, ErrPluginNotRunning) {
 			t.Fatalf("%s: %v", name, err)
 		}
 		got, _ := json.MarshalIndent(sc, "", "  ")
@@ -98,7 +104,7 @@ func TestBuildNoServer(t *testing.T) {
 	if !errors.Is(err, ErrNoServer) {
 		t.Fatalf("err = %v", err)
 	}
-	if sc == nil || len(sc.Servers) != 1 || len(sc.Clients) != 1 || sc.Clients[0].Name != "direct" ||
+	if sc == nil || sc.Servers[0].Name != "local" || len(sc.Clients) != 1 || sc.Clients[0].Name != "direct" ||
 		sc.Router.DefaultTCPClientName != "direct" {
 		t.Fatalf("config %+v", sc)
 	}
@@ -160,5 +166,94 @@ func TestBuildPluginNotRunningIsNoProxy(t *testing.T) {
 	}
 	if sc.Router.DefaultTCPClientName != "proxy" {
 		t.Fatal("proxied traffic must go to the fail-closed client, not direct")
+	}
+}
+
+func clientByName(sc *service.Config, name string) service.ClientConfig {
+	for _, c := range sc.Clients {
+		if c.Name == name {
+			return c
+		}
+	}
+	return service.ClientConfig{}
+}
+
+// Spec §3.4: UDP on — mixed+udp on TCP, a UDP-only socks5 on the same
+// address, UDP clients at MTU 1500, routes for both networks.
+func TestBuildUDP(t *testing.T) {
+	sc, err := Build(sampleConfig(), sampleRules, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sc.Servers) != 2 || sc.Servers[0].Protocol != "mixed+udp" {
+		t.Fatalf("servers %+v", sc.Servers)
+	}
+	u := sc.Servers[1]
+	if u.Name != "local-udp" || u.Protocol != "socks5" || len(u.TCPListeners) != 0 || len(u.UDPListeners) != 1 ||
+		u.UDPListeners[0].Address != sc.Servers[0].TCPListeners[0].Address || u.MTU != 1500 {
+		t.Fatalf("udp server %+v", u)
+	}
+	for _, n := range []string{"direct", "proxy"} {
+		if c := clientByName(sc, n); !c.EnableUDP || c.MTU != 1500 {
+			t.Fatalf("%s client %+v", n, c)
+		}
+	}
+	if sc.Router.DefaultUDPClientName != sc.Router.DefaultTCPClientName {
+		t.Fatalf("udp default %q, tcp default %q", sc.Router.DefaultUDPClientName, sc.Router.DefaultTCPClientName)
+	}
+	for _, r := range sc.Router.Routes {
+		if r.Network != "" {
+			t.Fatalf("route %s network %q, want both", r.Name, r.Network)
+		}
+	}
+}
+
+// A2-D1: TCP goes to the plugin, UDP straight to the server.
+func TestBuildUDPPlugin(t *testing.T) {
+	c := sampleConfig()
+	c.Configs[0].Plugin = "v2ray-plugin"
+	sc, err := Build(c, nil, 41234)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := clientByName(sc, "proxy")
+	if p.Endpoint.IsValid() || p.TCPAddress.String() != "127.0.0.1:41234" || p.UDPAddress.String() != "ss.example.com:8388" {
+		t.Fatalf("proxy %+v", p)
+	}
+}
+
+// A2-D5: the fail-closed client denies UDP too.
+func TestBuildUDPPluginDown(t *testing.T) {
+	c := sampleConfig()
+	c.Configs[0].Plugin = "v2ray-plugin"
+	sc, _ := Build(c, nil, 0)
+	if p := clientByName(sc, "proxy"); !p.EnableUDP || p.MTU != 1500 || len(p.IPDenylistPrefixes) != 2 {
+		t.Fatalf("proxy %+v", p)
+	}
+	if sc.Router.DefaultUDPClientName != "proxy" {
+		t.Fatalf("udp default %q", sc.Router.DefaultUDPClientName)
+	}
+}
+
+// A2-D2: forward proxy on → TCP-only config, as in A1.
+func TestBuildUDPOffWithForward(t *testing.T) {
+	c := sampleConfig()
+	c.Proxy = fwd(config.ProxySOCKS5)
+	sc, err := Build(c, sampleRules, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sc.Servers) != 1 || sc.Servers[0].Protocol != "mixed" || sc.Router.DefaultUDPClientName != "" {
+		t.Fatalf("config %+v", sc)
+	}
+	for _, cl := range sc.Clients {
+		if cl.EnableUDP {
+			t.Fatalf("client %s has UDP", cl.Name)
+		}
+	}
+	for _, r := range sc.Router.Routes {
+		if r.Network != "tcp" {
+			t.Fatalf("route %s network %q", r.Name, r.Network)
+		}
 	}
 }
