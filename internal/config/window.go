@@ -2,14 +2,14 @@ package config
 
 import "encoding/json"
 
-// WindowBounds is a window's last size and position (ssmygo field). Zero
+// WindowBounds is a window's last size and position (ssmygo field; windows
+// cannot be maximized, so there is no maximized state). Zero
 // size means the default size; zero position means centred.
 type WindowBounds struct {
-	Width     int  `json:"width,omitzero"`
-	Height    int  `json:"height,omitzero"`
-	Left      int  `json:"left,omitzero"`
-	Top       int  `json:"top,omitzero"`
-	Maximized bool `json:"maximized,omitzero"`
+	Width  int `json:"width,omitzero"`
+	Height int `json:"height,omitzero"`
+	Left   int `json:"left,omitzero"`
+	Top    int `json:"top,omitzero"`
 }
 
 type windowBoundsFields WindowBounds

@@ -122,7 +122,7 @@ func (v *onlineView) confirmRemove() {
 // the right, the URL field below.
 func (v *onlineView) View(c *mui.Context) {
 	T := wpf
-	Compact(c)
+	applyTheme(c)
 	t := c.Theme()
 	cur, hasSel := v.selected()
 	mui.Column(c).Fill().Padding(t.Space(3)).Gap(t.Space(2)).Children(func() {

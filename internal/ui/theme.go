@@ -92,9 +92,8 @@ func defaultButton(c *mui.Context, label string) mui.Element {
 	return mui.Button(c, label).Border(2, c.Theme().Accent)
 }
 
-// Compact applies the classic Windows 10 theme to the window (light or dark
-// as the system is). The name predates the theme: it was MyGo's compact
-// density.
-func Compact(c *mui.Context) {
+// applyTheme applies the classic Windows 10 theme to the window (light or
+// dark as the system is).
+func applyTheme(c *mui.Context) {
 	c.SetTheme(classicTheme(c.Theme().Dark))
 }

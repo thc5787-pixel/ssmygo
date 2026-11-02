@@ -85,7 +85,7 @@ func (w *ForwardWindow) proxy() (config.ForwardProxy, []config.FieldError) {
 // View lays out the original ForwardProxyView.
 func (w *ForwardWindow) View(c *mui.Context) {
 	T := i18n.T
-	Compact(c)
+	applyTheme(c)
 	t := c.Theme()
 	if c.Shortcut(0, mui.KeyEscape) {
 		w.close()

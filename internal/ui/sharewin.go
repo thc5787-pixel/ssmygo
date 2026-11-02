@@ -40,7 +40,7 @@ func (v *shareView) choose(i int) {
 }
 
 func (v *shareView) View(c *mui.Context) {
-	Compact(c)
+	applyTheme(c)
 	t := c.Theme()
 	mui.Column(c).Fill().Padding(t.Space(3)).Gap(t.Space(2)).Children(func() {
 		mui.Row(c).Grow(1).Gap(t.Space(3)).AlignItems(mui.Stretch).Children(func() {

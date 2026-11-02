@@ -178,7 +178,7 @@ func (w *HotkeyWindow) set(i int, v string) {
 
 // View lays out the original HotkeysView.
 func (w *HotkeyWindow) View(c *mui.Context) {
-	Compact(c)
+	applyTheme(c)
 	t := c.Theme()
 	if c.Shortcut(0, mui.KeyEscape) {
 		w.close()

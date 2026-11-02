@@ -297,7 +297,7 @@ func (b gridButton) ColumnStart(n int) gridButton { b.e.ColumnStart(n); return b
 // ConfigForm: the server list | the "Server" group box, then the button grid.
 func (w *ConfigWindow) View(c *mui.Context) {
 	T := i18n.T
-	Compact(c)
+	applyTheme(c)
 	t := c.Theme()
 	gap := t.Space(2)
 	w.list.Selected = &w.sel
@@ -467,7 +467,6 @@ func OpenConfigWindow(ctrl *controller.Controller) {
 	win := mygo.NewWindow(opts)
 	win.OnClose(func(*mygo.CloseEvent) {
 		nb := b
-		nb.Maximized = false // the window cannot be maximized
 		// A minimized window's bounds are Windows' parking spot: keep the last.
 		if !win.IsMinimized() {
 			r := win.Bounds()

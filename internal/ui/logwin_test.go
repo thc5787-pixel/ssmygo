@@ -10,6 +10,7 @@ import (
 	mui "github.com/egoist/mygo/ui"
 	"github.com/thc5787/ssmygo/internal/config"
 	"github.com/thc5787/ssmygo/internal/controller"
+	"github.com/thc5787/ssmygo/internal/i18n"
 	"github.com/thc5787/ssmygo/internal/traffic"
 )
 
@@ -191,5 +192,25 @@ func TestLogViewSnapshots(t *testing.T) {
 		f, _ := os.Create(filepath.Join(dir, name))
 		png.Encode(f, tt.Image())
 		f.Close()
+	}
+}
+
+// The Log Viewer's menus and toolbar are translated (their keys are stored
+// without the original's "&" access keys).
+func TestLogMenuTranslated(t *testing.T) {
+	i18n.SetLocale("zh-CN")
+	defer i18n.SetLocale("en")
+	l, _, tt := newLogTest(t, "x\n")
+	m := logMenu(l, logMenuActions{Exit: func() {}, OpenLocation: func() {}, TopMost: func(bool) {}})
+	for id, key := range map[string]string{"file.open": "Open Location", "file.exit": "Exit", "view.clear": "Clear Logs",
+		"view.font": "Change Font", "view.wrap": "Wrap Text", "view.top": "Top Most", "view.toolbar": "Show Toolbar"} {
+		if got, want := m.ItemByID(id).Label, i18n.T(key); got != want || want == key {
+			t.Errorf("%s: %q, want %q", id, got, want)
+		}
+	}
+	l.v.ToolbarShown = true
+	tt.Frame()
+	if !tt.HasText(i18n.T("Clear Logs")) {
+		t.Fatalf("toolbar not translated: %q", tt.Texts())
 	}
 }

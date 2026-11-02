@@ -125,7 +125,7 @@ func (l *logView) close() {
 
 var mnemonic = regexp.MustCompile(`\(&.\)|&`)
 
-// plain drops the original's mnemonics ("&File", "文件(&F)").
+// plain drops the original's mnemonics ("File", "文件(&F)").
 func plain(s string) string { return strings.TrimSpace(mnemonic.ReplaceAllString(s, "")) }
 
 var (
@@ -136,20 +136,20 @@ var (
 // View lays out the window.
 func (l *logView) View(c *mui.Context) {
 	T := func(k string) string { return plain(i18n.T(k)) }
-	Compact(c)
+	applyTheme(c)
 	t := c.Theme()
 	mui.Column(c).Fill().Children(func() {
 		if l.v.ToolbarShown {
 			mui.Row(c).Gap(t.Space(2)).Padding(t.Space(2)).Children(func() {
-				if mui.Button(c, T("&Clear Logs")).Clicked() {
+				if mui.Button(c, T("Clear Logs")).Clicked() {
 					l.clear()
 				}
-				if mui.Button(c, T("Change &Font")).Clicked() {
+				if mui.Button(c, T("Change Font")).Clicked() {
 					l.openFont()
 				}
-				mui.Checkbox(c, &l.v.WrapText, T("&Wrap Text"))
+				mui.Checkbox(c, &l.v.WrapText, T("Wrap Text"))
 				top := l.v.TopMost
-				if mui.Checkbox(c, &top, T("&Top Most")).Changed() {
+				if mui.Checkbox(c, &top, T("Top Most")).Changed() {
 					l.setTopMost(top)
 				}
 			})
@@ -239,9 +239,9 @@ func (l *logView) chart(c *mui.Context) mui.Element {
 func (l *logView) fontDialog(c *mui.Context) {
 	t := c.Theme()
 	families := fontFamilies()
-	mui.Text(c, plain(i18n.T("Change &Font"))).Bold()
+	mui.Text(c, plain(i18n.T("Change Font"))).Bold()
 	mui.Form(c, func() {
-		mui.Field(c, plain(i18n.T("Change &Font")), func() { mui.Select(c, &l.fontFamily, families) })
+		mui.Field(c, plain(i18n.T("Change Font")), func() { mui.Select(c, &l.fontFamily, families) })
 		mui.Field(c, i18n.T("ssmygo.fontSize"), func() { mui.NumberInput(c, &l.fontSize, 6, 36, 0.5) })
 	})
 	mui.Row(c).Gap(t.Space(2)).Justify(mui.End).Children(func() {
@@ -292,17 +292,17 @@ func logMenu(l *logView, a logMenuActions) *mygo.Menu {
 			Click: func(it *mygo.MenuItem, _ *mygo.Window) { set(it.IsChecked()) }}
 	}
 	return mygo.NewMenu([]*mygo.MenuItem{
-		{Label: T("&File"), Submenu: []*mygo.MenuItem{
-			{ID: "file.open", Label: T("&Open Location"), Click: func(*mygo.MenuItem, *mygo.Window) { a.OpenLocation() }},
-			{ID: "file.exit", Label: T("E&xit"), Click: func(*mygo.MenuItem, *mygo.Window) { a.Exit() }},
+		{Label: T("File"), Submenu: []*mygo.MenuItem{
+			{ID: "file.open", Label: T("Open Location"), Click: func(*mygo.MenuItem, *mygo.Window) { a.OpenLocation() }},
+			{ID: "file.exit", Label: T("Exit"), Click: func(*mygo.MenuItem, *mygo.Window) { a.Exit() }},
 		}},
-		{Label: T("&View"), Submenu: []*mygo.MenuItem{
-			{ID: "view.clear", Label: T("&Clear Logs"), Click: func(*mygo.MenuItem, *mygo.Window) { l.clear() }},
-			{ID: "view.font", Label: T("Change &Font"), Click: func(*mygo.MenuItem, *mygo.Window) { l.openFont() }},
-			check("view.wrap", T("&Wrap Text"), l.v.WrapText, func(on bool) { l.v.WrapText = on }),
-			check("view.top", T("&Top Most"), l.v.TopMost, func(on bool) { l.setTopMost(on); a.TopMost(on) }),
+		{Label: T("View"), Submenu: []*mygo.MenuItem{
+			{ID: "view.clear", Label: T("Clear Logs"), Click: func(*mygo.MenuItem, *mygo.Window) { l.clear() }},
+			{ID: "view.font", Label: T("Change Font"), Click: func(*mygo.MenuItem, *mygo.Window) { l.openFont() }},
+			check("view.wrap", T("Wrap Text"), l.v.WrapText, func(on bool) { l.v.WrapText = on }),
+			check("view.top", T("Top Most"), l.v.TopMost, func(on bool) { l.setTopMost(on); a.TopMost(on) }),
 			mygo.Separator(),
-			check("view.toolbar", T("&Show Toolbar"), l.v.ToolbarShown, func(on bool) { l.v.ToolbarShown = on }),
+			check("view.toolbar", T("Show Toolbar"), l.v.ToolbarShown, func(on bool) { l.v.ToolbarShown = on }),
 		}},
 	})
 }
@@ -355,7 +355,6 @@ func OpenLogWindow(ctrl *controller.Controller) {
 		win.Update(func() { l.setShowPlugin(s.ShowPluginOutput); refreshMenu() })
 	})
 	win.OnClose(func(*mygo.CloseEvent) {
-		l.v.Maximized = false // the window cannot be maximized
 		// A minimized window's bounds are Windows' parking spot (-32000):
 		// keep the last saved position instead.
 		if !win.IsMinimized() {
