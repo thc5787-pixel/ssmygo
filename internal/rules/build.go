@@ -69,7 +69,8 @@ func buildUser(r *Result, user, outDir string) error {
 		os.Remove(stamp) // a crash below must not leave a stale stamp
 		for i, p := range paths {
 			if len(sets[i]) == 0 {
-				os.Remove(p)
+				// Not removed: the running core config may still name it
+				// until the new result is adopted. It is no longer referenced.
 				continue
 			}
 			if _, err := writeGob(p, sets[i]); err != nil {
@@ -131,6 +132,7 @@ func buildGeosite(dlc []byte, direct, proxied []string, outDir string) (Result, 
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return Result{}, err
 	}
+	os.Remove(stamp) // a failure below must not leave a stamp over half-written sets
 	lines := []string{key}
 	for _, f := range []struct {
 		path   *string
@@ -155,7 +157,7 @@ func buildGeosite(dlc []byte, direct, proxied []string, outDir string) (Result, 
 const emptyMark = "!empty:"
 
 // writeGob writes ds to path; a set without usable domains (the domain set
-// format cannot hold one) removes path and returns false.
+// format cannot hold one) returns false and leaves path alone.
 func writeGob(path string, ds []Domain) (bool, error) {
 	var text strings.Builder
 	for _, d := range ds {
@@ -175,9 +177,8 @@ func writeGob(path string, ds []Domain) (bool, error) {
 		text.WriteByte('\n')
 	}
 	if text.Len() == 0 {
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			return false, err
-		}
+		// path is left alone: the running core config may still name it
+		// until the new result is adopted; the result no longer does.
 		return false, nil
 	}
 	b, err := domainset.BuilderFromText(text.String())

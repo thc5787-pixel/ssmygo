@@ -80,6 +80,7 @@ var extra = map[string][2]string{
 	"ssmygo.geositeNotDLC":    {"Geosite update failed: the download is not a geosite file.", "Geosite 更新失败：下载的不是 geosite 文件。"},
 	"ssmygo.userRuleSkipped":  {"user-rule.txt: skipped %d unsupported rules (lines %s).", "user-rule.txt：已跳过 %d 条不支持的规则（第 %s 行）。"},
 	"ssmygo.userRuleRead":     {"Cannot read user-rule.txt; the previous rules are kept: %v", "无法读取 user-rule.txt，保留之前的规则：%v"},
+	"ssmygo.userRuleBuild":    {"Cannot apply user-rule.txt; the previous rules are kept: %v", "无法应用 user-rule.txt，保留之前的规则：%v"},
 	"ssmygo.cannotOpen":       {"Cannot open %s: %v", "无法打开 %s：%v"},
 }
 

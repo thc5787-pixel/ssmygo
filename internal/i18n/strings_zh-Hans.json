@@ -114,6 +114,7 @@
   "ssmygo.trustRun": "运行",
   "ssmygo.trustTitle": "运行插件程序？",
   "ssmygo.udpOff": "UDP：已关闭（使用前置代理）",
+  "ssmygo.userRuleBuild": "无法应用 user-rule.txt，保留之前的规则：%v",
   "ssmygo.userRuleRead": "无法读取 user-rule.txt，保留之前的规则：%v",
   "ssmygo.userRuleSkipped": "user-rule.txt：已跳过 %d 条不支持的规则（第 %s 行）。"
 }

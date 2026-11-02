@@ -57,6 +57,15 @@ type UserRulesReadError struct{ Err error }
 func (e *UserRulesReadError) Error() string { return "read user-rule.txt: " + e.Err.Error() }
 func (e *UserRulesReadError) Unwrap() error { return e.Err }
 
+// UserRulesBuildError: user-rule.txt was read but the rule sets could not
+// be built; the previous rules are kept.
+type UserRulesBuildError struct{ Err error }
+
+func (e *UserRulesBuildError) Error() string {
+	return "build rules for user-rule.txt: " + e.Err.Error()
+}
+func (e *UserRulesBuildError) Unwrap() error { return e.Err }
+
 // userRuleTemplate is written by EnsureUserRuleFile: comments only.
 const userRuleTemplate = `! ssmygo user rules: one rule per line; they take priority over geosite.
 ! Lines starting with ! are comments.
@@ -148,7 +157,7 @@ func (c *Controller) startRulesLocked() {
 	var err error
 	built := false
 	if saved, rerr := os.ReadFile(c.dlcPath()); rerr == nil {
-		rs, err = in.build(saved, user)
+		rs, err = c.buildSets(in, saved, user)
 		if err == nil && len(rs.Missing) == 0 {
 			c.dlc, built = saved, true
 		} else {
@@ -157,7 +166,7 @@ func (c *Controller) startRulesLocked() {
 	}
 	if !built {
 		c.dlc = c.d.DLC
-		rs, err = in.build(c.dlc, user)
+		rs, err = c.buildSets(in, c.dlc, user)
 	}
 	if err != nil {
 		c.d.Logger.Error("rules unavailable, rules mode routes everything through the server", "err", err)
@@ -240,14 +249,14 @@ func (c *Controller) updateGeosite(ctx context.Context, background bool) (bool, 
 		os.Remove(tmp)
 		return fail(err)
 	}
-	rs, err := in.build(data, user)
+	rs, err := c.buildSets(in, data, user)
 	if err == nil {
 		err = os.Rename(tmp, dlcPath)
 	}
 	if err != nil {
 		os.Remove(tmp)
 		// The build may have replaced some sets: put the current ones back.
-		if _, rerr := in.build(cur, user); rerr != nil {
+		if _, rerr := c.buildSets(in, cur, user); rerr != nil {
 			c.d.Logger.Error("restore rules", "err", rerr)
 		}
 		return fail(err)
@@ -333,23 +342,28 @@ func (c *Controller) watchUserRules(stop <-chan struct{}, interval time.Duration
 			continue
 		}
 		// Taken before reading: a write that lands after the read changes
-		// the stamp again and is picked up by the next poll.
+		// the stamp again and is picked up by the next poll. A failed
+		// reload (file locked for a moment, build error) forgets the stamp
+		// so the next poll tries again (notified once).
 		last = st
-		c.reloadUserRules(path)
+		if !c.reloadUserRules(path) {
+			last = fileStamp{}
+		}
 	}
 }
 
 // reloadUserRules rebuilds the rules from user-rule.txt. A file that
 // cannot be read keeps the previous rules (notified once); a missing file
-// means no user rules.
-func (c *Controller) reloadUserRules(path string) {
+// means no user rules. It reports false when the reload failed and should
+// be retried.
+func (c *Controller) reloadUserRules(path string) bool {
 	c.rulesMu.Lock()
 	defer c.rulesMu.Unlock()
 	user, rerr := readUserRules(path)
 	c.mu.Lock()
 	if !c.started {
 		c.mu.Unlock()
-		return
+		return true
 	}
 	if rerr != nil {
 		c.d.Logger.Warn("user-rule.txt unreadable, previous rules kept", "err", rerr)
@@ -359,31 +373,43 @@ func (c *Controller) reloadUserRules(path string) {
 			c.dirty = true
 		}
 		c.unlock()
-		return
+		return false
 	}
-	c.userRuleFailed = false
 	if user == c.userText {
+		c.userRuleFailed = false
 		c.unlock()
-		return
+		return true
 	}
 	in, dlc := c.ruleInputsLocked(), c.dlc
 	c.mu.Unlock()
 
-	rs, err := in.build(dlc, user)
+	rs, err := c.buildSets(in, dlc, user)
 
 	c.mu.Lock()
 	defer c.unlock()
 	if !c.started {
-		return
+		return true
 	}
 	if err != nil {
 		c.d.Logger.Error("rebuild rules for user-rule.txt", "err", err)
-		c.addNotice(&UserRulesReadError{Err: err})
-		c.dirty = true
-		return
+		if !c.userRuleFailed {
+			c.userRuleFailed = true
+			c.addNotice(&UserRulesBuildError{Err: err})
+			c.dirty = true
+		}
+		return false
 	}
+	c.userRuleFailed = false
 	c.userText = user
 	c.adoptRulesLocked(&rs)
 	c.reapplyLocked()
 	c.d.Logger.Info("user-rule.txt reloaded", "direct", rs.UserDirect != "", "proxied", rs.UserProxied != "", "skipped", len(rs.UserSkipped))
+	return true
+}
+
+// buildSets is in.build with the set files held exclusively (setsMu).
+func (c *Controller) buildSets(in ruleInputs, dlc []byte, user string) (rules.Result, error) {
+	c.setsMu.Lock()
+	defer c.setsMu.Unlock()
+	return in.build(dlc, user)
 }

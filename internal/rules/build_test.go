@@ -106,3 +106,54 @@ func TestBuildEmptyGeositeSet(t *testing.T) {
 		t.Fatalf("full: %+v %v", r, err)
 	}
 }
+
+// Final review #3: a geosite build that fails part-way must not leave the
+// old stamp, or the next build of the old input is a false cache hit over
+// half-written sets.
+func TestFailedGeositeBuildDropsStamp(t *testing.T) {
+	dir := t.TempDir()
+	a, err := Build(fixture(), []string{"cn"}, []string{"geolocation-!cn"}, "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := os.ReadFile(a.Direct)
+	oldProxied, _ := os.ReadFile(a.Proxied)
+	// proxied.gob cannot be written: a directory takes its place.
+	os.Remove(a.Proxied)
+	os.Mkdir(a.Proxied, 0o755)
+	if _, err := Build(fixture(), []string{"geolocation-!cn"}, []string{"cn"}, "", dir); err == nil {
+		t.Fatal("build into a directory succeeded")
+	}
+	// As when the write failed on a locked file: the old proxied set stays.
+	os.Remove(a.Proxied)
+	os.WriteFile(a.Proxied, oldProxied, 0o644)
+	again, err := Build(fixture(), []string{"cn"}, []string{"geolocation-!cn"}, "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(again.Direct); string(got) != string(want) {
+		t.Fatal("direct set left from the failed build (stale stamp hit)")
+	}
+}
+
+// Final review #2a: a build never deletes a set file, which the running
+// core config may still name until the new result is adopted.
+func TestBuildKeepsOldSetFiles(t *testing.T) {
+	dir := t.TempDir()
+	a, err := Build(fixture(), []string{"cn"}, []string{"geolocation-!cn"}, userText, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Build(fixture(), []string{"cn"}, []string{"geolocation-!cn"}, "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.UserDirect != "" || b.UserProxied != "" {
+		t.Fatalf("new result still names user sets: %+v", b)
+	}
+	for _, p := range []string{a.UserDirect, a.UserProxied} {
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("%s removed while the running config may still name it", p)
+		}
+	}
+}

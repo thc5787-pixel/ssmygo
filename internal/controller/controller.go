@@ -63,7 +63,11 @@ type Controller struct {
 
 	// Rules (P1-D). rulesMu serializes rule builds (they share the gob
 	// files) and is taken before mu, never while holding it.
-	rulesMu        sync.Mutex
+	rulesMu sync.Mutex
+	// setsMu: rule builds write the gob set files (exclusive); the core
+	// loads them in applyCore (shared). Windows cannot replace a file
+	// while it is being mapped. Order: mu, then setsMu; never mu inside it.
+	setsMu         sync.RWMutex
 	dlc            []byte // the geosite the rules were built from
 	userText       string // the user-rule.txt the rules were built from
 	userSkipped    []int  // last reported skipped user-rule lines
@@ -266,7 +270,9 @@ func (c *Controller) applyCore(cfg *config.Config, pluginPort int) error {
 	if err != nil && !errors.Is(err, core.ErrNoServer) && !errors.Is(err, core.ErrPluginNotRunning) {
 		return err
 	}
+	c.setsMu.RLock()
 	err = c.runner.Apply(sc)
+	c.setsMu.RUnlock()
 	var op *net.OpError
 	if errors.As(err, &op) && op.Op == "listen" {
 		return &PortInUseError{Port: cfg.LocalPort, Err: err}
@@ -508,6 +514,13 @@ func (c *Controller) commitMoving(next *config.Config, portable bool) error {
 	if to.Root == "" || to.Root == from.Root {
 		return c.commit(next)
 	}
+	// The rule files live beside gui-config.json: copy them first, so the
+	// user rules and the downloaded geosite stay in force (copies: a failed
+	// switch below loses nothing).
+	if err := os.MkdirAll(to.Root, 0o755); err == nil {
+		copyIfMissing(from.UserRule(), to.UserRule())
+		copyIfMissing(filepath.Join(from.Root, "dlc.dat"), filepath.Join(to.Root, "dlc.dat"))
+	}
 	c.paths = to
 	if err := c.commit(next); err != nil {
 		var se *SaveError
@@ -663,4 +676,16 @@ func (c *Controller) Shutdown() {
 	}
 	c.stopPlugin()
 	c.runner.Stop()
+}
+
+// copyIfMissing copies src to dst unless dst exists or src does not.
+func copyIfMissing(src, dst string) {
+	if _, err := os.Stat(dst); err == nil {
+		return
+	}
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return
+	}
+	os.WriteFile(dst, b, 0o644)
 }

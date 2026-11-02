@@ -31,6 +31,7 @@ func Message(err error) string {
 		geoGroups *geosite.MissingGroupsError
 		skipped   *controller.UserRulesSkippedError
 		userRead  *controller.UserRulesReadError
+		userBuild *controller.UserRulesBuildError
 		geoDone   *controller.GeositeUpdatedNotice
 	)
 	switch {
@@ -78,6 +79,8 @@ func Message(err error) string {
 		return fmt.Sprintf(i18n.T("ssmygo.userRuleSkipped"), len(skipped.Lines), strings.Join(lines, ", "))
 	case errors.As(err, &userRead):
 		return fmt.Sprintf(i18n.T("ssmygo.userRuleRead"), userRead.Err)
+	case errors.As(err, &userBuild):
+		return fmt.Sprintf(i18n.T("ssmygo.userRuleBuild"), userBuild.Err)
 	}
 	return err.Error()
 }

@@ -114,6 +114,7 @@
   "ssmygo.trustRun": "Run",
   "ssmygo.trustTitle": "Run plugin program?",
   "ssmygo.udpOff": "UDP: off (forward proxy in use)",
+  "ssmygo.userRuleBuild": "Cannot apply user-rule.txt; the previous rules are kept: %v",
   "ssmygo.userRuleRead": "Cannot read user-rule.txt; the previous rules are kept: %v",
   "ssmygo.userRuleSkipped": "user-rule.txt: skipped %d unsupported rules (lines %s)."
 }
