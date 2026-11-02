@@ -28,6 +28,9 @@ type State struct {
 	ForwardIgnored bool
 	// UDPDisabled: the forward proxy is on, so UDP ASSOCIATE is refused (A2-D2).
 	UDPDisabled bool
+	// ShowPluginOutput: Help ▸ Show Plugin Output; the log window shows
+	// plugin output lines only when set.
+	ShowPluginOutput bool
 	// PluginFailure: plugin supervision gave up (crash loop, or the file was
 	// replaced and is no longer trusted). Not set for refusals of the user's
 	// own actions, which the UI handles where they happen.

@@ -21,6 +21,7 @@ import (
 	"github.com/thc5787/ssmygo/internal/core/plugin"
 	"github.com/thc5787/ssmygo/internal/rules"
 	"github.com/thc5787/ssmygo/internal/sysproxy"
+	"github.com/thc5787/ssmygo/internal/traffic"
 )
 
 // Deps are the controller's collaborators.
@@ -48,21 +49,30 @@ type Controller struct {
 	plug          *plugin.Process // the current server's running plugin, if any
 	pluginFailure error           // set by plugin supervision when it gave up
 
-	subMu  sync.Mutex
-	subs   map[int]func(State)
-	nextID int
+	subMu       sync.Mutex
+	subs        map[int]func(State)
+	trafficSubs map[int]func(traffic.Snapshot)
+	nextID      int
+
+	meter       *traffic.Meter // app lifetime: totals carry across Apply
+	sampler     *traffic.Sampler
+	trafficStop chan struct{}
 }
 
 // New loads the configuration. A corrupt file is backed up and replaced by
 // defaults; the backup is reported through State().LastError.
 func New(d Deps) (*Controller, error) {
+	meter := &traffic.Meter{}
 	c := &Controller{
 		d:     d,
 		paths: d.Paths,
 		// Warn: at Info the core logs every connection's destination, which
 		// would write a browsing history next to a portable exe.
-		runner: core.NewRunner(tslog.Config{Level: slog.LevelWarn}.NewLoggerWithHandler(d.Logger.Handler()), nil),
-		subs:   map[int]func(State){},
+		runner:      core.NewRunner(tslog.Config{Level: slog.LevelWarn}.NewLoggerWithHandler(d.Logger.Handler()), meter),
+		subs:        map[int]func(State){},
+		trafficSubs: map[int]func(traffic.Snapshot){},
+		meter:       meter,
+		sampler:     traffic.NewSampler(meter, historyLen),
 	}
 	cfg, err := config.Load(d.Paths.Config())
 	if errors.Is(err, config.ErrCorrupt) {
@@ -123,6 +133,10 @@ func (c *Controller) Start() error {
 	defer c.unlock()
 	c.started = true
 	c.recoverCrash()
+	if c.trafficStop == nil {
+		c.trafficStop = make(chan struct{})
+		go c.runTraffic(c.trafficStop)
+	}
 
 	rs, err := rules.Build(c.d.DLC, c.cfg.GeositeDirectGroups, c.cfg.GeositeProxiedGroups, c.paths.DomainSets())
 	if err != nil {
@@ -530,6 +544,7 @@ func (c *Controller) stateLocked() State {
 		FirstRun: c.cfg.FirstRun,
 	}
 	s.PluginFailure = c.pluginFailure
+	s.ShowPluginOutput = c.cfg.ShowPluginOutput
 	s.UDPDisabled = c.cfg.Proxy.UseProxy // same rule as core.Build
 	if srv, ok := c.cfg.Current(); ok && srv.Plugin != "" && c.cfg.Proxy.UseProxy {
 		s.ForwardIgnored = true // A1-D3
@@ -588,6 +603,10 @@ func (c *Controller) Shutdown() {
 		return
 	}
 	c.started = false
+	if c.trafficStop != nil {
+		close(c.trafficStop)
+		c.trafficStop = nil
+	}
 	if c.cfg.Enabled && c.cfg.Sysproxy.Recorded {
 		if err := c.setSys(recorded(c.cfg.Sysproxy)); err != nil {
 			c.d.Logger.Error("restore system proxy on exit", "err", err)
