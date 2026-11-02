@@ -33,3 +33,10 @@ user runs them.
 | 15 | Not at startup by default | Uncheck it; Save; restart | No hotkey is registered until Register all | ☐ |
 | 16 | Cancel | Register all, change a field, Cancel | Nothing saved; the registered hotkeys keep working | ☐ |
 | 17 | Original config | Copy a gui-config.json from the original client with `strategy` and `hotkey` set (e.g. `Ctrl+Alt+D1`) | Strategy and hotkeys shown; after ssmygo saves, the original reads the file and keeps them | ☐ |
+
+Note on High Availability probes: while High Availability is selected, every
+member server is probed every 30 s (and at once after each settings change)
+with an HTTP request to `clients3.google.com/generate_204` and a DNS query to
+`one.one.one.one:53`, sent through that server. This continues while the
+system proxy is disabled, because the local port keeps running. Load Balance
+does not probe.
