@@ -56,7 +56,7 @@ func TestLogViewerRoundTrip(t *testing.T) {
 func TestLogViewerMissing(t *testing.T) {
 	c, _ := loadString(t, `{"configs":[]}`)
 	d := DefaultLogViewer()
-	if c.LogViewer.FontFamily != d.FontFamily || c.LogViewer.FontSize != 9 || c.LogViewer.Width != 640 || c.LogViewer.Height != 420 || c.ShowPluginOutput {
+	if c.LogViewer.FontFamily != d.FontFamily || c.LogViewer.FontSize != 9 || c.ShowPluginOutput {
 		t.Fatalf("defaults %+v", c.LogViewer)
 	}
 }
@@ -103,24 +103,16 @@ func TestShowPluginOutputDefaultFalse(t *testing.T) {
 	}
 }
 
-// Final review: a window closed while minimized saved Windows' parking
-// position (-32000); it must not reopen off-screen.
-func TestLogViewerMinimizedPositionDropped(t *testing.T) {
-	c, _ := loadString(t, `{"configs":[],"logViewer":{"left":-32000,"top":-32000,"width":160,"height":28}}`)
-	if v := c.LogViewer; v.Left != 0 || v.Top != 0 || v.Width != 640 || v.Height != 420 {
-		t.Fatalf("loaded %+v", v)
+// A logViewer section nobody changed is saved back byte for byte (no new
+// keys appear).
+func TestLogViewerUnchangedRoundTrip(t *testing.T) {
+	const section = `{"topMost":true,"wrapText":false,"toolbarShown":true,"Font":"Consolas, 8pt","BackgroundColor":"Black","TextColor":"White"}`
+	c, p := loadString(t, `{"configs":[],"logViewer":`+section+`}`)
+	if err := c.Save(p); err != nil {
+		t.Fatal(err)
 	}
-}
-
-// The Log Viewer (the only window that can maximize) remembers it.
-func TestLogViewerMaximizedRoundTrip(t *testing.T) {
-	c, p := loadString(t, `{"configs":[]}`)
-	v := c.LogViewer
-	v.Maximized = true
-	c.SetLogViewer(v)
-	c.Save(p)
-	c2, _ := Load(p)
-	if !c2.LogViewer.Maximized {
-		t.Fatal("maximized not kept")
+	k := logViewerKeys(t, p)
+	if len(k) != 6 {
+		t.Fatalf("keys %v", k)
 	}
 }

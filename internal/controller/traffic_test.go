@@ -68,7 +68,7 @@ func TestSaveLogViewer(t *testing.T) {
 	e.writeConfig(nil)
 	c := e.start()
 	v := c.LogViewer()
-	v.WrapText, v.Width, v.FontFamily = true, 800, "Cascadia Mono"
+	v.WrapText, v.FontSize, v.FontFamily = true, 12, "Cascadia Mono"
 	if err := c.SaveLogViewer(v); err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestSaveLogViewer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cfg.LogViewer.WrapText || cfg.LogViewer.Width != 800 || cfg.LogViewer.FontFamily != "Cascadia Mono" {
+	if !cfg.LogViewer.WrapText || cfg.LogViewer.FontSize != 12 || cfg.LogViewer.FontFamily != "Cascadia Mono" {
 		t.Fatalf("saved %+v", cfg.LogViewer)
 	}
 }
@@ -103,20 +103,21 @@ func TestSetShowPluginOutput(t *testing.T) {
 	}
 }
 
-func TestSaveConfigWindowBounds(t *testing.T) {
+func TestSaveWindowStates(t *testing.T) {
 	e := newEnv(t)
 	e.writeConfig(nil)
 	c := e.start()
-	b := config.WindowBounds{Width: 900, Height: 720, Left: 40, Top: 30}
-	if err := c.SaveConfigWindowBounds(b); err != nil {
+	in := map[string]config.WindowState{"logViewer": {X: 40, Y: 30, Width: 900, Height: 720, Maximized: true}}
+	if err := c.SaveWindowStates(in); err != nil {
 		t.Fatal(err)
 	}
-	if c.ConfigWindowBounds() != b {
-		t.Fatal("not kept")
+	in["logViewer"] = config.WindowState{} // the controller keeps its own copy
+	if got := c.WindowStates()["logViewer"]; got.Width != 900 || !got.Maximized {
+		t.Fatalf("kept %+v", got)
 	}
 	cfg, _ := config.Load(e.deps().Paths.Config())
-	if cfg.ConfigWindow != b {
-		t.Fatalf("saved %+v", cfg.ConfigWindow)
+	if got := cfg.WindowStates["logViewer"]; got.X != 40 || got.Height != 720 {
+		t.Fatalf("saved %+v", got)
 	}
 }
 

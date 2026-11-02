@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"maps"
 	"path/filepath"
 	"time"
 
@@ -91,19 +92,19 @@ func (c *Controller) SetShowPluginOutput(on bool) error {
 	return nil
 }
 
-// ConfigWindowBounds is the Edit Servers window's last size and position.
-func (c *Controller) ConfigWindowBounds() config.WindowBounds {
+// WindowStates are the windows' last positions and sizes, by MyGo
+// StateKey.
+func (c *Controller) WindowStates() map[string]config.WindowState {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.cfg.ConfigWindow
+	return maps.Clone(c.cfg.WindowStates)
 }
 
-// SaveConfigWindowBounds stores the Edit Servers window's size and position
-// and saves gui-config.json.
-func (c *Controller) SaveConfigWindowBounds(b config.WindowBounds) error {
+// SaveWindowStates replaces the windows' states and saves gui-config.json.
+func (c *Controller) SaveWindowStates(states map[string]config.WindowState) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.cfg.ConfigWindow = b
+	c.cfg.WindowStates = maps.Clone(states)
 	if err := c.save(); err != nil {
 		return &SaveError{Err: err}
 	}

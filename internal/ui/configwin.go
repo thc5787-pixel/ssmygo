@@ -453,29 +453,11 @@ func OpenConfigWindow(ctrl *controller.Controller) {
 	w := NewConfigWindow(ctrl.SaveServers, ctrl.Config())
 	opts := mygo.WindowOptions{
 		Title: i18n.T("Edit Servers"), Width: 582, Height: 620, MinWidth: 582, MinHeight: 620,
-		DisableMaximize: true, // a dialog, as the original's ConfigForm
+		DisableMaximize: true,          // a dialog, as the original's ConfigForm
+		StateKey:        "editServers", // MyGo keeps its place and size
 		Content:         mui.View(w.View),
 	}
-	// The size and position the user left it at (zero: default, centred).
-	b := ctrl.ConfigWindowBounds()
-	if b.Width >= opts.MinWidth && b.Height >= opts.MinHeight {
-		opts.Width, opts.Height = b.Width, b.Height
-	}
-	if b.Left != 0 || b.Top != 0 {
-		opts.X, opts.Y = b.Left, b.Top
-	}
 	win := mygo.NewWindow(opts)
-	win.OnClose(func(*mygo.CloseEvent) {
-		nb := b
-		// A minimized window's bounds are Windows' parking spot: keep the last.
-		if !win.IsMinimized() {
-			r := win.Bounds()
-			nb.Left, nb.Top, nb.Width, nb.Height = r.X, r.Y, r.Width, r.Height
-		}
-		if nb != b {
-			go ctrl.SaveConfigWindowBounds(nb) // the controller lock may be held by a save
-		}
-	})
 	// Save off the main thread (a plugin may take seconds to start) and ask
 	// before running an untrusted plugin; results return on the main thread.
 	w.run = func(work func() error, done func(error)) {

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/thc5787/ssmygo/assets"
@@ -36,6 +37,7 @@ func main() {
 	i18n.SetLocale(i18n.SystemLocale())
 
 	var ctrl *controller.Controller
+	var states *ui.WindowStateStore
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	mygo.App.OnWindowAllClosed(func() {}) // live in the tray
@@ -47,7 +49,12 @@ func main() {
 	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { shutdown() })
 	// Windows logoff/shutdown (WM_ENDSESSION) ends the app through OnQuit
 	// only, skipping OnBeforeQuit; the user's proxy must still be restored.
-	mygo.App.OnQuit(shutdown)
+	mygo.App.OnQuit(func() {
+		shutdown()
+		if states != nil { // MyGo saved the window states just before
+			states.Wait(2 * time.Second)
+		}
+	})
 	mygo.App.OnSecondInstance(func([]string, string) {
 		if ctrl != nil {
 			ui.OpenConfigWindow(ctrl)
@@ -74,6 +81,9 @@ func main() {
 			return
 		}
 		ctrl = c
+		// Window places and sizes go in gui-config.json, before any window.
+		states = ui.NewWindowStateStore(ctrl)
+		mygo.App.SetWindowStateStore(states)
 		if lang := ctrl.State().Language; lang != "" { // tray ▸ Language
 			i18n.SetLocale(lang)
 		}
