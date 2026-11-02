@@ -148,7 +148,8 @@ func (v *onlineView) View(c *mui.Context) {
 		})
 		mui.Row(c).Gap(t.Space(2)).AlignItems(mui.Center).Children(func() {
 			mui.Text(c, "URL")
-			in := mui.TextInput(c, &v.input).Grow(1)
+			var in mui.Element
+			fields(c, func() { in = mui.TextInput(c, &v.input) }).Grow(1)
 			if v.inputErr != "" {
 				in.Border(1, t.Danger).Tooltip(v.inputErr)
 			}

@@ -11,7 +11,7 @@ import (
 	"github.com/thc5787/ssmygo/internal/i18n"
 )
 
-// ForwardWindow is the Forward Proxy window (original ForwardProxyView, 280×400).
+// ForwardWindow is the Forward Proxy window (original ForwardProxyView, 280×400; 320×520 here for labels above fields).
 type ForwardWindow struct {
 	save    func(config.ForwardProxy) error
 	typ     string // "none", "socks5", "http"
@@ -101,7 +101,7 @@ func (w *ForwardWindow) View(c *mui.Context) {
 				mui.Radio(c, &w.typ, "socks5", T("SOCKS5"))
 				mui.Radio(c, &w.typ, "http", T("HTTP"))
 			}).Label(T("resx.Type"))
-			mui.Form(c, func() {
+			fields(c, func() {
 				mui.Fieldset(c, T("resx.Details"), func() {
 					mui.Field(c, T("resx.Address"), func() { mui.TextInput(c, &w.addr).Disabled(off) }).Error(errMsg(errs, "proxyServer"))
 					mui.Field(c, T("resx.Port"), func() { mui.TextInput(c, &w.port).Disabled(off) }).Error(errMsg(errs, "proxyPort"))
@@ -160,7 +160,7 @@ func OpenForwardWindow(ctrl *controller.Controller) {
 	}
 	w := NewForwardWindow(ctrl.SetForwardProxy, ctrl.Config().Proxy)
 	win := mygo.NewWindow(mygo.WindowOptions{
-		Title: i18n.T("resx.ForwardProxy"), Width: 280, Height: 400, MinWidth: 280, MinHeight: 400,
+		Title: i18n.T("resx.ForwardProxy"), Width: 320, Height: 520, MinWidth: 300, MinHeight: 460,
 		Content: mui.View(w.View),
 	})
 	w.run = func(work func() error, done func(error)) {

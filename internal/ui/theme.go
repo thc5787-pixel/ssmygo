@@ -82,3 +82,9 @@ func navBackground(t *mui.Theme) mui.Color {
 func Compact(c *mui.Context) {
 	c.SetTheme(win10Theme(c.Theme().Dark))
 }
+
+// fields builds fn with the Windows 10 field look: page-colored text fields
+// and drop-downs with a border (buttons outside keep the gray surface).
+func fields(c *mui.Context, fn func()) mui.Element {
+	return mui.Themed(c, fieldTheme(c.Theme())).Background(mui.Transparent).Children(fn)
+}

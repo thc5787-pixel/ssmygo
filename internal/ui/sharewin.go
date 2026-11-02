@@ -64,7 +64,7 @@ func (v *shareView) View(c *mui.Context) {
 			})
 		})
 		mui.Row(c).Gap(t.Space(2)).Children(func() {
-			mui.TextInput(c, &v.link).ReadOnly(true).Grow(1)
+			fields(c, func() { mui.TextInput(c, &v.link).ReadOnly(true) }).Grow(1)
 			if mui.Button(c, wpf("resx.Copy")).Disabled(v.sel < 0).Clicked() && v.copy != nil {
 				v.copy(v.link)
 			}
