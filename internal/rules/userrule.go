@@ -52,7 +52,7 @@ func ruleHost(r string) (string, bool) {
 	switch {
 	case strings.HasPrefix(r, "||"):
 		r = strings.TrimPrefix(r, "||")
-		r = trimOne(r, "^", "/")
+		return validHost(trimOne(r, "^", "/"), true)
 	case strings.HasPrefix(r, "|"):
 		rest, ok := strings.CutPrefix(r[1:], "http://")
 		if !ok {
@@ -67,11 +67,10 @@ func ruleHost(r string) (string, bool) {
 		if i := strings.LastIndexByte(rest, ':'); i >= 0 {
 			rest = rest[:i] // port
 		}
-		r = rest
-	default:
-		r = trimOne(r, "^", "/")
+		return validHost(rest, true)
 	}
-	return validHost(r)
+	// A bare word would be an ABP substring rule: only names with a dot.
+	return validHost(trimOne(r, "^", "/"), false)
 }
 
 // trimOne removes one of the suffixes, if present.
@@ -85,10 +84,10 @@ func trimOne(s string, suffixes ...string) string {
 }
 
 // validHost lowercases h (IDNs become punycode, which is what clients send)
-// and accepts only names of at least two labels made of letters, digits and
-// hyphens: a single word would be an ABP substring rule.
-func validHost(h string) (string, bool) {
-	if h == "" || !strings.Contains(h, ".") {
+// and accepts only names made of letters, digits and hyphens; a single
+// label (e.g. "localhost") only when singleLabel is set.
+func validHost(h string, singleLabel bool) (string, bool) {
+	if h == "" || (!singleLabel && !strings.Contains(h, ".")) {
 		return "", false
 	}
 	a, err := idna.Lookup.ToASCII(h)

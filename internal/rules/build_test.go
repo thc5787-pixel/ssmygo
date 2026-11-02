@@ -79,3 +79,30 @@ func TestBuildUserCache(t *testing.T) {
 		t.Fatalf("user cache: reused=%v skipped=%v", u1.ModTime().Equal(u2.ModTime()), r3.UserSkipped)
 	}
 }
+
+// A geosite set with no domains (every group unknown, or no groups) has no
+// file and an empty path; the other set still works, also from the cache.
+func TestBuildEmptyGeositeSet(t *testing.T) {
+	dir := t.TempDir()
+	for i := 0; i < 2; i++ { // cold, then cached
+		r, err := Build(fixture(), []string{"nope"}, []string{"geolocation-!cn"}, "", dir)
+		if err != nil {
+			t.Fatalf("#%d: %v", i, err)
+		}
+		if r.Direct != "" || r.Proxied == "" || !reflect.DeepEqual(r.Missing, []string{"nope"}) {
+			t.Fatalf("#%d: %+v", i, r)
+		}
+		if !loadSet(t, r.Proxied).Match("google.com") {
+			t.Fatalf("#%d: proxied set wrong", i)
+		}
+	}
+	r, err := Build(fixture(), nil, nil, "", dir)
+	if err != nil || r.Direct != "" || r.Proxied != "" {
+		t.Fatalf("no groups: %+v %v", r, err)
+	}
+	// Back to a full set: rebuilt with a file again.
+	r, err = Build(fixture(), []string{"cn"}, []string{"geolocation-!cn"}, "", dir)
+	if err != nil || r.Direct == "" || !loadSet(t, r.Direct).Match("baidu.com") {
+		t.Fatalf("full: %+v %v", r, err)
+	}
+}

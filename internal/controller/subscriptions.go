@@ -64,15 +64,24 @@ func (c *Controller) SubscriptionResults() map[string]SubResult {
 	return out
 }
 
-// TakeNotice returns, once, a notice the UI should show (see
-// SelectionReplacedError, SubscriptionsFailedError).
+// TakeNotice returns, once, the oldest notice the UI should show (see
+// SelectionReplacedError, SubscriptionsFailedError, GeositeUpdatedNotice,
+// GeositeUpdateError, UserRulesSkippedError, UserRulesReadError); nil when
+// there is none. Call it until it returns nil.
 func (c *Controller) TakeNotice() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	n := c.notice
-	c.notice = nil
+	if len(c.notices) == 0 {
+		return nil
+	}
+	n := c.notices[0]
+	c.notices = c.notices[1:]
 	return n
 }
+
+// addNotice queues a notice for TakeNotice. Callers mark the state dirty
+// so the UI is told.
+func (c *Controller) addNotice(err error) { c.notices = append(c.notices, err) }
 
 // AddSubscription adds a subscription URL and saves; it does not fetch.
 func (c *Controller) AddSubscription(rawURL string) error {
@@ -105,7 +114,7 @@ func (c *Controller) RemoveSubscription(rawURL string) error {
 	}
 	delete(c.subResults, rawURL)
 	if notice != nil {
-		c.notice = notice
+		c.addNotice(notice)
 	}
 	return nil
 }
@@ -136,7 +145,7 @@ func (c *Controller) UpdateSubscription(ctx context.Context, rawURL string) (Sub
 		return res, err
 	}
 	if notice != nil { // only once the change stands
-		c.notice = notice
+		c.addNotice(notice)
 	}
 	c.d.Logger.Info("subscription updated", "host", subscribe.Host(rawURL), "servers", len(servers), "skipped", skipped)
 	return res, nil
@@ -214,7 +223,7 @@ func (c *Controller) updateAllInBackground(ctx context.Context, urls []string) {
 	go func() {
 		if failed := c.UpdateAllSubscriptions(ctx); len(failed) > 0 {
 			c.mu.Lock()
-			c.notice = &SubscriptionsFailedError{Failed: len(failed), Total: len(urls)}
+			c.addNotice(&SubscriptionsFailedError{Failed: len(failed), Total: len(urls)})
 			c.dirty = true
 			c.unlock()
 		}

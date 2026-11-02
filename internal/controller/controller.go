@@ -58,8 +58,17 @@ type Controller struct {
 
 	updMu      sync.Mutex // serializes subscription updates
 	subResults map[string]SubResult
-	notice     error // shown once by the UI: see TakeNotice
+	notices    []error // shown once each by the UI: see TakeNotice
 	bgCancel   context.CancelFunc
+
+	// Rules (P1-D). rulesMu serializes rule builds (they share the gob
+	// files) and is taken before mu, never while holding it.
+	rulesMu        sync.Mutex
+	dlc            []byte // the geosite the rules were built from
+	userText       string // the user-rule.txt the rules were built from
+	userSkipped    []int  // last reported skipped user-rule lines
+	userRuleFailed bool   // a read failure was reported
+	userStop       chan struct{}
 
 	meter       *traffic.Meter // app lifetime: totals carry across Apply
 	sampler     *traffic.Sampler
@@ -137,6 +146,8 @@ func (c *Controller) unlock() {
 
 // Start builds the rules, starts the core and applies the system proxy.
 func (c *Controller) Start() error {
+	c.rulesMu.Lock()
+	defer c.rulesMu.Unlock()
 	c.mu.Lock()
 	defer c.unlock()
 	c.started = true
@@ -146,17 +157,11 @@ func (c *Controller) Start() error {
 		go c.runTraffic(c.trafficStop)
 	}
 
-	user, _ := os.ReadFile(c.paths.UserRule()) // missing: no user rules
-	rs, err := rules.Build(c.d.DLC, c.cfg.GeositeDirectGroups, c.cfg.GeositeProxiedGroups, string(user), c.paths.DomainSets())
-	if err != nil {
-		c.d.Logger.Error("rules unavailable, rules mode routes everything through the server", "err", err)
-		c.lastErr = fmt.Errorf("rules unavailable: %w", err)
-	} else {
-		c.rules = &rs
-		if len(rs.Missing) > 0 {
-			c.d.Logger.Warn("unknown geosite groups skipped", "groups", rs.Missing)
-			c.lastErr = fmt.Errorf("unknown geosite groups skipped: %v", rs.Missing)
-		}
+	userStamp := stampOf(c.paths.UserRule()) // before reading it (D-D4)
+	c.startRulesLocked()
+	if c.userStop == nil {
+		c.userStop = make(chan struct{})
+		go c.watchUserRules(c.userStop, userRulePoll, userStamp)
 	}
 	// Return the cold rules build's garbage to the OS right away (tray-only
 	// working-set target is 40 MB); cheap, and a no-op on warm starts.
@@ -173,6 +178,9 @@ func (c *Controller) Start() error {
 		ctx, cancel := context.WithCancel(context.Background())
 		c.bgCancel = cancel
 		c.updateAllInBackground(ctx, slices.Clone(c.cfg.OnlineConfigSource))
+		if geositeStale(c.cfg) {
+			c.updateGeositeInBackground(ctx) // D-D1
+		}
 	}
 	if c.cfg.Enabled && (coreErr != nil || unusable(c.cfg) != nil) {
 		// Never leave the system proxy on a port we cannot serve, nor point it
@@ -638,6 +646,10 @@ func (c *Controller) Shutdown() {
 	if c.trafficStop != nil {
 		close(c.trafficStop)
 		c.trafficStop = nil
+	}
+	if c.userStop != nil {
+		close(c.userStop)
+		c.userStop = nil
 	}
 	if c.cfg.Enabled && c.cfg.Sysproxy.Recorded {
 		if err := c.setSys(recorded(c.cfg.Sysproxy)); err != nil {

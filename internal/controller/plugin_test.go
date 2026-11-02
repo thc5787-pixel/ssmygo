@@ -20,6 +20,7 @@ import (
 var fakeBuilt string
 
 func TestMain(m *testing.M) {
+	geositeAutoCheck = false // never download geosite from the internet in tests
 	dir, err := os.MkdirTemp("", "ctl-fakeplugin")
 	if err != nil {
 		panic(err)

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/database64128/shadowsocks-go/domainset"
@@ -71,7 +72,7 @@ func buildUser(r *Result, user, outDir string) error {
 				os.Remove(p)
 				continue
 			}
-			if err := writeGob(p, sets[i]); err != nil {
+			if _, err := writeGob(p, sets[i]); err != nil {
 				return err
 			}
 		}
@@ -92,17 +93,31 @@ func buildGeosite(dlc []byte, direct, proxied []string, outDir string) (Result, 
 	r := Result{Direct: filepath.Join(outDir, "direct.gob"), Proxied: filepath.Join(outDir, "proxied.gob")}
 	stamp := filepath.Join(outDir, "stamp")
 	key := cacheKey(dlc, direct, proxied)
-	if b, err := os.ReadFile(stamp); err == nil && exists(r.Direct) && exists(r.Proxied) {
-		// stamp: key, then the missing groups, one per line
+	if b, err := os.ReadFile(stamp); err == nil {
+		// stamp: key, then the missing groups and the empty sets
+		// (emptyMark + path), one per line
 		lines := strings.Split(string(b), "\n")
-		if lines[0] == key {
-			for _, m := range lines[1:] {
-				if m != "" {
-					r.Missing = append(r.Missing, m)
-				}
+		hit := lines[0] == key
+		var empty []string
+		for _, m := range lines[1:] {
+			if p, ok := strings.CutPrefix(m, emptyMark); ok {
+				empty = append(empty, p)
+			} else if m != "" {
+				r.Missing = append(r.Missing, m)
 			}
+		}
+		for _, p := range []*string{&r.Direct, &r.Proxied} {
+			switch {
+			case slices.Contains(empty, filepath.Base(*p)):
+				*p = ""
+			case !exists(*p):
+				hit = false
+			}
+		}
+		if hit {
 			return r, nil
 		}
+		r = Result{Direct: filepath.Join(outDir, "direct.gob"), Proxied: filepath.Join(outDir, "proxied.gob")}
 	}
 	want := map[string]bool{}
 	for _, g := range append(append([]string{}, direct...), proxied...) {
@@ -116,21 +131,32 @@ func buildGeosite(dlc []byte, direct, proxied []string, outDir string) (Result, 
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return Result{}, err
 	}
+	lines := []string{key}
 	for _, f := range []struct {
-		path   string
+		path   *string
 		groups []string
-	}{{r.Direct, direct}, {r.Proxied, proxied}} {
+	}{{&r.Direct, direct}, {&r.Proxied, proxied}} {
 		ds, missing := Select(list, f.groups)
 		r.Missing = append(r.Missing, missing...)
-		if err := writeGob(f.path, ds); err != nil {
+		ok, err := writeGob(*f.path, ds)
+		if err != nil {
 			return Result{}, err
 		}
+		if !ok {
+			lines = append(lines, emptyMark+filepath.Base(*f.path))
+			*f.path = ""
+		}
 	}
-	stampText := strings.Join(append([]string{key}, r.Missing...), "\n")
+	stampText := strings.Join(append(lines, r.Missing...), "\n")
 	return r, os.WriteFile(stamp, []byte(stampText), 0o644)
 }
 
-func writeGob(path string, ds []Domain) error {
+// emptyMark marks a set without domains in the stamp.
+const emptyMark = "!empty:"
+
+// writeGob writes ds to path; a set without usable domains (the domain set
+// format cannot hold one) removes path and returns false.
+func writeGob(path string, ds []Domain) (bool, error) {
 	var text strings.Builder
 	for _, d := range ds {
 		switch d.Type {
@@ -148,19 +174,25 @@ func writeGob(path string, ds []Domain) error {
 		text.WriteString(d.Value)
 		text.WriteByte('\n')
 	}
+	if text.Len() == 0 {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return false, err
+		}
+		return false, nil
+	}
 	b, err := domainset.BuilderFromText(text.String())
 	if err != nil {
-		return err
+		return false, err
 	}
 	var buf bytes.Buffer
 	if err := b.WriteGob(&buf); err != nil {
-		return err
+		return false, err
 	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, buf.Bytes(), 0o644); err != nil {
-		return err
+		return false, err
 	}
-	return os.Rename(tmp, path)
+	return true, os.Rename(tmp, path)
 }
 
 func cacheKey(dlc []byte, direct, proxied []string) string {

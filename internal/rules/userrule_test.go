@@ -40,6 +40,8 @@ func TestParseUserRules(t *testing.T) {
 		{line: "|ftp://a.com/", skipped: true},
 		{line: "|https://*.a.com/", skipped: true},
 		{line: "keyword", skipped: true},
+		{line: "||localhost^", proxied: "localhost"},
+		{line: "@@|http://intranet/", direct: "intranet"},
 		{line: "||", skipped: true},
 		{line: "@@", skipped: true},
 		{line: "||bad_host.com^", skipped: true},
