@@ -3,6 +3,7 @@ package ui
 import (
 	"errors"
 	"fmt"
+	"net"
 	"reflect"
 	"slices"
 	"strconv"
@@ -421,13 +422,19 @@ func (w *ConfigWindow) View(c *mui.Context) {
 
 func (w *ConfigWindow) title(i int) string {
 	e := w.servers[i]
-	if e.Remarks != "" {
+	host := strings.TrimSpace(e.Server)
+	switch {
+	case host == "" && e.Remarks == "":
+		return i18n.T("ssmygo.newServer")
+	case host == "":
 		return e.Remarks
 	}
-	if strings.TrimSpace(e.Server) == "" {
-		return i18n.T("ssmygo.newServer")
+	// As the tray (config.Server.Title): "remarks (host:port)".
+	addr := net.JoinHostPort(host, strings.TrimSpace(e.Port))
+	if e.Remarks != "" {
+		return e.Remarks + " (" + addr + ")"
 	}
-	return e.Server + ":" + e.Port
+	return addr
 }
 
 var (

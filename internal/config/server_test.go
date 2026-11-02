@@ -62,7 +62,11 @@ func TestMethodsOrder(t *testing.T) {
 }
 
 func TestTitle(t *testing.T) {
-	if (Server{Remarks: "Tokyo", Server: "a", ServerPort: 1}).Title() != "Tokyo" {
+	// As the original's FriendlyName: remarks, then the address.
+	if got := (Server{Server: "::1", ServerPort: 8388}).Title(); got != "[::1]:8388" {
+		t.Errorf("IPv6 title %q", got)
+	}
+	if (Server{Remarks: "Tokyo", Server: "a", ServerPort: 1}).Title() != "Tokyo (a:1)" {
 		t.Fatal("remarks")
 	}
 	if (Server{Server: "a", ServerPort: 1}).Title() != "a:1" {

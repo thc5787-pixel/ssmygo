@@ -333,7 +333,7 @@ func TestImportURLs(t *testing.T) {
 	if len(d.Configs) != 3 || d.Index != 0 || d.Configs[2].Remarks != "b" {
 		t.Fatalf("disk %+v", d.Configs)
 	}
-	if got := strings.Join(c.State().Servers, ","); got != e.server().Title()+",a,b" {
+	if got := strings.Join(c.State().Servers, ","); got != e.server().Title()+",a (127.0.0.1:8088),b (1.2.3.4:8388)" {
 		t.Fatalf("servers %s", got)
 	}
 }

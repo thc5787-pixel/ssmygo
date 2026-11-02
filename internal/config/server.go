@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"slices"
 	"strconv"
 	"strings"
@@ -58,12 +59,15 @@ func (s Server) MarshalJSON() ([]byte, error) {
 	return marshalWithExtra(serverFields(s), s.extra)
 }
 
-// Title is the name shown in menus and lists.
+// Title is the name shown in menus and lists, as the original's
+// FriendlyName: "remarks (host:port)", or "host:port" without remarks (an
+// IPv6 address in brackets).
 func (s Server) Title() string {
+	addr := net.JoinHostPort(strings.TrimSpace(s.Server), strconv.Itoa(s.ServerPort))
 	if s.Remarks != "" {
-		return s.Remarks
+		return s.Remarks + " (" + addr + ")"
 	}
-	return s.Server + ":" + strconv.Itoa(s.ServerPort)
+	return addr
 }
 
 // MaxTimeout is the largest server timeout in seconds

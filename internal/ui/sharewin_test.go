@@ -39,7 +39,7 @@ func TestShareSelectsCurrent(t *testing.T) {
 func TestShareLinkMatchesSelection(t *testing.T) {
 	v, tt := newShare()
 	tt.Frame()
-	tt.Click("Tokyo")
+	tt.Click("Tokyo (jp.example.com:8388)")
 	tt.Frame()
 	if v.sel != 0 || v.link != config.FormatURL(shareConfig().Configs[0]) {
 		t.Fatalf("sel %d link %q", v.sel, v.link)

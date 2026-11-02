@@ -124,7 +124,7 @@ func TestUpdateSelectionFallback(t *testing.T) {
 		t.Fatalf("selected %q, want the first server of the same subscription", s.Remarks)
 	}
 	var sr *SelectionReplacedError
-	if n := c.TakeNotice(); !errors.As(n, &sr) || sr.Old != "gone-2" {
+	if n := c.TakeNotice(); !errors.As(n, &sr) || sr.Old != "gone-2 (192.0.2.2:8388)" {
 		t.Fatalf("notice %v", n)
 	}
 	// Removing the subscription of the selected server falls back to the first server.
