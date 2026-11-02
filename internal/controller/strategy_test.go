@@ -196,6 +196,7 @@ func TestSelectRelativeWraps(t *testing.T) {
 
 func TestSelectRelativeWithoutServers(t *testing.T) {
 	e := newEnv(t)
+	e.writeConfig(func(c *config.Config) { c.Configs = nil }) // a free port, not the real 1080
 	c := e.start()
 	if err := c.SelectRelative(1); !errors.Is(err, ErrNoServer) {
 		t.Fatalf("err = %v", err)
