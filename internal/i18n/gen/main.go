@@ -27,6 +27,8 @@ var keys = []string{
 	"Portable Mode", "OK", "Cancel", "Apply", "System Proxy On: ", "System Proxy Disabled", "Shadowsocks",
 	"Forward Proxy...",
 	"Help", "Show Logs...", "Show Plugin Output",
+	"Log Viewer", "&File", "&Open Location", "E&xit", "&View", "&Clear Logs", "Change &Font", "&Wrap Text",
+	"&Top Most", "&Show Toolbar", "Inbound", "Outbound",
 }
 
 // resxNames are WPF strings (Localization/Strings*.resx), stored as "resx.<name>".
@@ -53,6 +55,9 @@ var extra = map[string][2]string{
 	"ssmygo.pluginCrashLoop":  {"Plugin keeps crashing and was stopped.", "插件反复崩溃，已停止。"},
 	"ssmygo.forwardIgnored":   {"Forward proxy: not used with this server's plugin", "前置代理：当前服务器使用插件，未启用"},
 	"ssmygo.udpOff":           {"UDP: off (forward proxy in use)", "UDP：已关闭（使用前置代理）"},
+	"ssmygo.logUnavailable":   {"Log file not available: %s", "日志文件不可用：%s"},
+	"ssmygo.total":            {"Total", "累计"},
+	"ssmygo.fontSize":         {"Size", "字号"},
 }
 
 var mnemonic = regexp.MustCompile(`\s?\(&\w\)|&`)
