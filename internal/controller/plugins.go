@@ -28,8 +28,8 @@ type procRef struct{ p *plugin.Process }
 // or the running one is reused) and the port to dial.
 func (c *Controller) preparePlugin(next *config.Config) (*plugin.Process, int, error) {
 	s, ok := next.Current()
-	if !ok || s.Plugin == "" {
-		return nil, 0, nil
+	if !ok || s.Plugin == "" || strategyActive(next) {
+		return nil, 0, nil // strategy members never use a plugin (E-D3)
 	}
 	path, err := plugin.Resolve(s.Plugin, c.d.ExeDir)
 	if err != nil {
@@ -85,7 +85,7 @@ func (c *Controller) adoptPlugin(next *config.Config, started *plugin.Process) {
 		c.plug = started
 		return
 	}
-	if s, ok := next.Current(); !ok || s.Plugin == "" {
+	if s, ok := next.Current(); !ok || s.Plugin == "" || strategyActive(next) {
 		c.stopPlugin()
 	}
 }
@@ -163,15 +163,15 @@ func (c *Controller) SetForwardProxy(p config.ForwardProxy) error {
 }
 
 // pluginNeeded reports whether going from prev to next requires next's
-// plugin to run: a different (or edited) current server, or turning the
-// system proxy on.
+// plugin to run: a different (or edited) current server, leaving a
+// strategy, or turning the system proxy on.
 func pluginNeeded(prev, next *config.Config) bool {
 	ns, ok := next.Current()
-	if !ok || ns.Plugin == "" {
+	if !ok || ns.Plugin == "" || strategyActive(next) {
 		return false
 	}
 	ps, pok := prev.Current()
-	if !pok || !reflect.DeepEqual(ps, ns) {
+	if !pok || !reflect.DeepEqual(ps, ns) || strategyActive(prev) {
 		return true
 	}
 	return next.Enabled && !prev.Enabled

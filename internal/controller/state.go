@@ -35,6 +35,12 @@ type State struct {
 	// replaced and is no longer trusted). Not set for refusals of the user's
 	// own actions, which the UI handles where they happen.
 	PluginFailure error
+	// Strategy is the strategy in use (StrategyNone, StrategyBalancing,
+	// StrategyHA); while one is, no server is the current one in the menu.
+	Strategy string
+	// StrategyExcluded counts the servers a strategy leaves out: those with
+	// a plugin, or invalid (E-D3).
+	StrategyExcluded int
 }
 
 // HasServer reports whether there is a server to select.
