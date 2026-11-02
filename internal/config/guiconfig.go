@@ -35,6 +35,9 @@ type Config struct {
 	GeositeDirectGroups  []string        `json:"geositeDirectGroups"`
 	GeositeProxiedGroups []string        `json:"geositeProxiedGroups"`
 	GeositePreferDirect  bool            `json:"geositePreferDirect"`
+	GeositeURL           string          `json:"geositeUrl"`
+	GeositeSha256sumURL  string          `json:"geositeSha256sumUrl"`
+	GeositeUpdatedAt     time.Time       `json:"ssmygoGeositeUpdatedAt,omitzero"` // last successful geosite update
 	Sysproxy             SysproxyRecord  `json:"ssmygoSysproxy"`
 	Proxy                ForwardProxy    `json:"proxy"`
 	TrustedPlugins       []TrustedPlugin `json:"ssmygoTrustedPlugins,omitempty"`

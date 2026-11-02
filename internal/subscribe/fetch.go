@@ -33,15 +33,8 @@ func Fetch(ctx context.Context, rawURL string, proxyPort int) (servers []config.
 	fail := func(format string, a ...any) error {
 		return fmt.Errorf("%w: %s: %s", ErrFetch, Host(rawURL), fmt.Sprintf(format, a...))
 	}
-	tr := &http.Transport{Proxy: nil, ForceAttemptHTTP2: true, TLSHandshakeTimeout: 10 * time.Second}
-	if proxyPort > 0 {
-		// Always a CONNECT tunnel, http:// too: the proxy then sees only
-		// host:port, never the path and its token (the core logs request
-		// URIs of failed plain-HTTP proxy requests).
-		tr.DialContext = connectDialer("127.0.0.1:" + strconv.Itoa(proxyPort))
-	}
-	defer tr.CloseIdleConnections()
-	client := &http.Client{Transport: tr, Timeout: timeout}
+	client := Client(proxyPort, timeout)
+	defer client.CloseIdleConnections()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, 0, fail("invalid URL")
@@ -71,6 +64,19 @@ func Fetch(ctx context.Context, rawURL string, proxyPort int) (servers []config.
 		return nil, skipped, fail("%v", err)
 	}
 	return servers, skipped, nil
+}
+
+// Client is an HTTP client that never uses the system proxy. With
+// proxyPort > 0 every connection is a CONNECT tunnel through ssmygo's local
+// port (127.0.0.1:proxyPort), http:// too: the proxy then sees only
+// host:port, never the path and its token (the core logs request URIs of
+// failed plain-HTTP proxy requests). Otherwise it connects direct.
+func Client(proxyPort int, timeout time.Duration) *http.Client {
+	tr := &http.Transport{Proxy: nil, ForceAttemptHTTP2: true, TLSHandshakeTimeout: 10 * time.Second}
+	if proxyPort > 0 {
+		tr.DialContext = connectDialer("127.0.0.1:" + strconv.Itoa(proxyPort))
+	}
+	return &http.Client{Transport: tr, Timeout: timeout}
 }
 
 // Host is the URL's host name, for logs and messages.

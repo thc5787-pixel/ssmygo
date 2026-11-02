@@ -244,3 +244,35 @@ func TestLoadClampsLocalPort(t *testing.T) {
 		}
 	}
 }
+
+// P1-D: the original's geosite source fields and ssmygo's update time.
+func TestGeositeFieldsRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gui-config.json")
+	os.WriteFile(path, []byte(`{"geositeUrl":"https://example.com/dlc.dat","geositeSha256sumUrl":"https://example.com/dlc.dat.sha256sum","ssmygoGeositeUpdatedAt":"2026-10-01T08:00:00Z"}`), 0o644)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 10, 1, 8, 0, 0, 0, time.UTC)
+	if c.GeositeURL != "https://example.com/dlc.dat" || c.GeositeSha256sumURL != "https://example.com/dlc.dat.sha256sum" || !c.GeositeUpdatedAt.Equal(at) {
+		t.Fatalf("loaded %q %q %v", c.GeositeURL, c.GeositeSha256sumURL, c.GeositeUpdatedAt)
+	}
+	if err := c.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	m := readMap(t, path)
+	if m["geositeUrl"] != "https://example.com/dlc.dat" || m["geositeSha256sumUrl"] != "https://example.com/dlc.dat.sha256sum" || m["ssmygoGeositeUpdatedAt"] != "2026-10-01T08:00:00Z" {
+		t.Fatalf("saved %v %v %v", m["geositeUrl"], m["geositeSha256sumUrl"], m["ssmygoGeositeUpdatedAt"])
+	}
+	// Never updated: the key is left out; the original's empty strings stay.
+	d := Default()
+	d.Save(path)
+	m = readMap(t, path)
+	if _, ok := m["ssmygoGeositeUpdatedAt"]; ok {
+		t.Fatal("zero update time written")
+	}
+	if v, ok := m["geositeUrl"]; !ok || v != "" {
+		t.Fatalf("geositeUrl = %v", v)
+	}
+}
