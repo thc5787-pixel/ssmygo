@@ -1,0 +1,75 @@
+{
+  "servers": [
+    {
+      "name": "local",
+      "protocol": "mixed+udp",
+      "tcpListeners": [
+        {
+          "network": "tcp",
+          "address": "127.0.0.1:1080"
+        }
+      ]
+    },
+    {
+      "name": "local-udp",
+      "protocol": "socks5",
+      "udpListeners": [
+        {
+          "network": "udp",
+          "address": "127.0.0.1:1080"
+        }
+      ],
+      "mtu": 1500
+    }
+  ],
+  "clients": [
+    {
+      "name": "direct",
+      "protocol": "direct",
+      "enableTCP": true,
+      "enableUDP": true,
+      "mtu": 1500
+    },
+    {
+      "name": "proxy-0",
+      "protocol": "chacha20-ietf-poly1305",
+      "endpoint": "ss.example.com:8388",
+      "enableTCP": true,
+      "enableUDP": true,
+      "mtu": 1500,
+      "password": "pw"
+    },
+    {
+      "name": "proxy-1",
+      "protocol": "aes-256-gcm",
+      "endpoint": "ss2.example.com:8389",
+      "enableTCP": true,
+      "enableUDP": true,
+      "mtu": 1500,
+      "password": "pw2"
+    }
+  ],
+  "clientGroups": [
+    {
+      "name": "proxy",
+      "tcp": {
+        "policy": "min-max-latency",
+        "clients": [
+          "proxy-0",
+          "proxy-1"
+        ]
+      },
+      "udp": {
+        "policy": "availability",
+        "clients": [
+          "proxy-0",
+          "proxy-1"
+        ]
+      }
+    }
+  ],
+  "router": {
+    "defaultTCPClientName": "proxy",
+    "defaultUDPClientName": "proxy"
+  }
+}

@@ -1,0 +1,118 @@
+{
+  "servers": [
+    {
+      "name": "local",
+      "protocol": "mixed+udp",
+      "tcpListeners": [
+        {
+          "network": "tcp",
+          "address": "127.0.0.1:1080"
+        }
+      ]
+    },
+    {
+      "name": "local-udp",
+      "protocol": "socks5",
+      "udpListeners": [
+        {
+          "network": "udp",
+          "address": "127.0.0.1:1080"
+        }
+      ],
+      "mtu": 1500
+    }
+  ],
+  "clients": [
+    {
+      "name": "direct",
+      "protocol": "direct",
+      "enableTCP": true,
+      "enableUDP": true,
+      "mtu": 1500
+    },
+    {
+      "name": "proxy-0",
+      "protocol": "chacha20-ietf-poly1305",
+      "endpoint": "ss.example.com:8388",
+      "enableTCP": true,
+      "enableUDP": true,
+      "mtu": 1500,
+      "password": "pw"
+    },
+    {
+      "name": "proxy-1",
+      "protocol": "aes-256-gcm",
+      "endpoint": "ss2.example.com:8389",
+      "enableTCP": true,
+      "enableUDP": true,
+      "mtu": 1500,
+      "password": "pw2"
+    }
+  ],
+  "clientGroups": [
+    {
+      "name": "proxy",
+      "tcp": {
+        "policy": "random",
+        "clients": [
+          "proxy-0",
+          "proxy-1"
+        ]
+      },
+      "udp": {
+        "policy": "random",
+        "clients": [
+          "proxy-0",
+          "proxy-1"
+        ]
+      }
+    }
+  ],
+  "domainSets": [
+    {
+      "name": "direct",
+      "type": "gob",
+      "path": "C:\\data\\cache\\domainsets\\direct.gob"
+    },
+    {
+      "name": "proxied",
+      "type": "gob",
+      "path": "C:\\data\\cache\\domainsets\\proxied.gob"
+    }
+  ],
+  "router": {
+    "defaultTCPClientName": "proxy",
+    "defaultUDPClientName": "proxy",
+    "routes": [
+      {
+        "name": "private",
+        "client": "direct",
+        "toPrefixes": [
+          "10.0.0.0/8",
+          "172.16.0.0/12",
+          "192.168.0.0/16",
+          "127.0.0.0/8",
+          "169.254.0.0/16",
+          "::1/128",
+          "fc00::/7",
+          "fe80::/10"
+        ],
+        "disableNameResolutionForIPRules": true
+      },
+      {
+        "name": "direct",
+        "client": "direct",
+        "toDomainSets": [
+          "direct"
+        ]
+      },
+      {
+        "name": "proxied",
+        "client": "proxy",
+        "toDomainSets": [
+          "proxied"
+        ]
+      }
+    ]
+  }
+}

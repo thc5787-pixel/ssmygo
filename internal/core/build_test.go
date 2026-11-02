@@ -68,6 +68,19 @@ func TestBuildGolden(t *testing.T) {
 			c.Configs[0].Plugin = "v2ray-plugin"
 			return c, sampleRules, 0
 		},
+		"strategy-balancing": func() (*config.Config, *rules.Result, int) {
+			return strategyConfig(config.StrategyBalancing), sampleRules, 0
+		},
+		"strategy-ha": func() (*config.Config, *rules.Result, int) {
+			c := strategyConfig(config.StrategyHA)
+			c.Global = true
+			return c, sampleRules, 0
+		},
+		"strategy-forward": func() (*config.Config, *rules.Result, int) {
+			c := strategyConfig(config.StrategyBalancing)
+			c.Proxy = fwd(config.ProxyHTTP)
+			return c, sampleRules, 0
+		},
 		"ss2022": func() (*config.Config, *rules.Result, int) {
 			c := sampleConfig()
 			c.Configs[0].Method, c.Configs[0].Password = "2022-blake3-aes-128-gcm", "AAECAwQFBgcICQoLDA0ODw=="

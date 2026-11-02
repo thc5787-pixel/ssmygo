@@ -7,10 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/database64128/shadowsocks-go/clientgroup"
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/domainset"
 	"github.com/database64128/shadowsocks-go/jsoncfg"
@@ -93,6 +95,15 @@ func Build(cfg *config.Config, rs *rules.Result, pluginPort int) (*service.Confi
 		}
 	}()
 
+	if cfg.Strategy.Known() {
+		if members, _ := StrategyMembers(cfg); len(members) > 0 {
+			if err := strategyClients(sc, cfg, members, udp); err != nil {
+				return sc, err
+			}
+			return sc, route(sc, cfg, rs, false)
+		}
+	}
+
 	srv, ok := cfg.Current()
 	if !ok || len(srv.Validate()) > 0 {
 		return sc, ErrNoServer
@@ -120,12 +131,18 @@ func Build(cfg *config.Config, rs *rules.Result, pluginPort int) (*service.Confi
 		proxy.DialerClient = forwardName
 	}
 	sc.Clients = append(sc.Clients, proxy)
+	return sc, route(sc, cfg, rs, pluginDown)
+}
 
+// route sets where traffic goes: everything to the proxy (global mode, or no
+// rules), or the rules' routes.
+func route(sc *service.Config, cfg *config.Config, rs *rules.Result, pluginDown bool) error {
+	udp := !cfg.Proxy.UseProxy
 	if cfg.Global || rs == nil || !cfg.GeositePreferDirect {
 		sc.Router.DefaultTCPClientName = proxyName
 	}
 	if cfg.Global || rs == nil {
-		return sc, notRunning(pluginDown)
+		return notRunning(pluginDown)
 	}
 	sc.DomainSets = []domainset.Config{
 		{Name: "direct", Type: "gob", Path: rs.Direct},
@@ -142,7 +159,64 @@ func Build(cfg *config.Config, rs *rules.Result, pluginPort int) (*service.Confi
 		{Name: "direct", Network: network, Client: directName, ToDomainSets: []string{"direct"}},
 		{Name: "proxied", Network: network, Client: proxyName, ToDomainSets: []string{"proxied"}},
 	}
-	return sc, notRunning(pluginDown)
+	return notRunning(pluginDown)
+}
+
+// StrategyMembers returns the indexes of the servers a strategy uses: the
+// valid ones without a plugin (E-D3: one plugin runs at a time), and how
+// many servers it leaves out.
+func StrategyMembers(cfg *config.Config) (members []int, excluded int) {
+	for i, s := range cfg.Configs {
+		if s.Plugin == "" && len(s.Validate()) == 0 {
+			members = append(members, i)
+		}
+	}
+	return members, len(cfg.Configs) - len(members)
+}
+
+// strategyClients adds a client per member, proxy-<index>, each through the
+// forward proxy when it is on, and the group "proxy" joining them. The
+// current server goes first: the probing policies start on the first client
+// until their first probe.
+func strategyClients(sc *service.Config, cfg *config.Config, members []int, udp bool) error {
+	if i := slices.Index(members, cfg.Index); i > 0 {
+		members = append([]int{cfg.Index}, slices.Delete(slices.Clone(members), i, i+1)...)
+	}
+	if cfg.Proxy.UseProxy {
+		fc, err := forwardClient(cfg.Proxy)
+		if err != nil {
+			return err
+		}
+		sc.Clients = append(sc.Clients, fc)
+	}
+	names := make([]string, 0, len(members))
+	for _, i := range members {
+		c, err := proxyClient(cfg.Configs[i], 0, udp)
+		if err != nil {
+			return fmt.Errorf("%w: %v", ErrNoServer, err)
+		}
+		c.Name = proxyName + "-" + strconv.Itoa(i)
+		if cfg.Proxy.UseProxy {
+			c.DialerClient = forwardName
+		}
+		sc.Clients = append(sc.Clients, withUDP(c, udp))
+		names = append(names, c.Name)
+	}
+	// Probes keep shadowsocks-go's defaults: an HTTP 204 from
+	// clients3.google.com and a DNS query to one.one.one.one, every 30 s.
+	g := clientgroup.Config{Name: proxyName}
+	g.TCP.Policy, g.TCP.Clients = clientgroup.PolicyRandom, names
+	if cfg.Strategy == config.StrategyHA {
+		g.TCP.Policy = clientgroup.PolicyMinMaxLatency
+	}
+	if udp {
+		g.UDP.Policy, g.UDP.Clients = clientgroup.PolicyRandom, names
+		if cfg.Strategy == config.StrategyHA {
+			g.UDP.Policy = clientgroup.PolicyAvailability
+		}
+	}
+	sc.ClientGroups = []clientgroup.Config{g}
+	return nil
 }
 
 // proxyClient is the client for server s. With a running plugin (pluginPort
