@@ -38,6 +38,8 @@ type Config struct {
 	Sysproxy             SysproxyRecord  `json:"ssmygoSysproxy"`
 	Proxy                ForwardProxy    `json:"proxy"`
 	TrustedPlugins       []TrustedPlugin `json:"ssmygoTrustedPlugins,omitempty"`
+	LogViewer            LogViewer       `json:"logViewer"`
+	ShowPluginOutput     bool            `json:"showPluginOutput"`
 
 	extra map[string]json.RawMessage
 }
@@ -57,6 +59,7 @@ func Default() *Config {
 		GeositeDirectGroups:  []string{"private", "cn", "geolocation-!cn@cn"},
 		GeositeProxiedGroups: []string{"geolocation-!cn"},
 		Proxy:                ForwardProxy{ProxyTimeout: DefaultProxyTimeout},
+		LogViewer:            DefaultLogViewer(),
 	}
 }
 
