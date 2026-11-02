@@ -41,6 +41,8 @@ type Config struct {
 	LogViewer            LogViewer       `json:"logViewer"`
 	ShowPluginOutput     bool            `json:"showPluginOutput"`
 	OnlineConfigSource   []string        `json:"onlineConfigSource"`
+	Strategy             StrategyID      `json:"strategy"`
+	Hotkey               HotkeyConfig    `json:"hotkey"`
 
 	extra map[string]json.RawMessage
 }
@@ -155,6 +157,7 @@ func (c *Config) Clone() *Config {
 	d.GeositeProxiedGroups = slices.Clone(c.GeositeProxiedGroups)
 	d.TrustedPlugins = slices.Clone(c.TrustedPlugins)
 	d.Proxy.extra = maps.Clone(c.Proxy.extra)
+	d.Hotkey.extra = maps.Clone(c.Hotkey.extra)
 	d.extra = maps.Clone(c.extra)
 	return &d
 }
