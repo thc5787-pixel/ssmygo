@@ -20,6 +20,7 @@ type LogViewer struct {
 	Height       int     `json:"height"`
 	Left         int     `json:"left"`
 	Top          int     `json:"top"`
+	Maximized    bool    `json:"maximized"`
 	Splitter     float32 `json:"splitter"` // log text's share of the height, 0–1
 
 	font       string // Font as read; written back while the font is unchanged
@@ -49,6 +50,7 @@ type logViewerFields struct {
 	Height       *int     `json:"height,omitempty"`
 	Left         *int     `json:"left,omitempty"`
 	Top          *int     `json:"top,omitempty"`
+	Maximized    *bool    `json:"maximized,omitempty"`
 	Splitter     *float32 `json:"splitter,omitempty"`
 }
 
@@ -71,8 +73,8 @@ func (v *LogViewer) UnmarshalJSON(b []byte) error {
 	}
 	*v = LogViewer{TopMost: f.TopMost, WrapText: f.WrapText, ToolbarShown: f.ToolbarShown,
 		Width: deref(f.Width, d.Width), Height: deref(f.Height, d.Height), Left: deref(f.Left, 0), Top: deref(f.Top, 0),
-		Splitter: deref(f.Splitter, d.Splitter),
-		font:     f.Font, extra: extra}
+		Maximized: deref(f.Maximized, false), Splitter: deref(f.Splitter, d.Splitter),
+		font: f.Font, extra: extra}
 	v.FontFamily, v.FontSize = parseFont(f.Font)
 	v.readFamily, v.readSize = v.FontFamily, v.FontSize
 	if v.Width < 400 || v.Height < 240 {
@@ -96,8 +98,8 @@ func (v LogViewer) MarshalJSON() ([]byte, error) {
 	}
 	f := logViewerFields{TopMost: v.TopMost, WrapText: v.WrapText, ToolbarShown: v.ToolbarShown, Font: font}
 	d := DefaultLogViewer()
-	if v.Width != d.Width || v.Height != d.Height || v.Left != 0 || v.Top != 0 || v.Splitter != d.Splitter {
-		f.Width, f.Height, f.Left, f.Top, f.Splitter = &v.Width, &v.Height, &v.Left, &v.Top, &v.Splitter
+	if v.Width != d.Width || v.Height != d.Height || v.Left != 0 || v.Top != 0 || v.Maximized || v.Splitter != d.Splitter {
+		f.Width, f.Height, f.Left, f.Top, f.Maximized, f.Splitter = &v.Width, &v.Height, &v.Left, &v.Top, &v.Maximized, &v.Splitter
 	}
 	return marshalWithExtra(f, v.extra)
 }

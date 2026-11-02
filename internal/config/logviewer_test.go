@@ -111,3 +111,16 @@ func TestLogViewerMinimizedPositionDropped(t *testing.T) {
 		t.Fatalf("loaded %+v", v)
 	}
 }
+
+// The Log Viewer (the only window that can maximize) remembers it.
+func TestLogViewerMaximizedRoundTrip(t *testing.T) {
+	c, p := loadString(t, `{"configs":[]}`)
+	v := c.LogViewer
+	v.Maximized = true
+	c.SetLogViewer(v)
+	c.Save(p)
+	c2, _ := Load(p)
+	if !c2.LogViewer.Maximized {
+		t.Fatal("maximized not kept")
+	}
+}
