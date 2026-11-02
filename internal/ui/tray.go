@@ -23,6 +23,7 @@ type MenuActions struct {
 	BootOn                             bool
 	ShowLogs                           func()
 	TogglePluginOutput                 func(bool)
+	ShareServers, ScanQR, OnlineConfig func()
 }
 
 // BuildMenu builds the P0 tray menu (spec §4.6) for state s.
@@ -43,6 +44,8 @@ func BuildMenu(s controller.State, a MenuActions) *mygo.Menu {
 	}
 	servers = append(servers,
 		&mygo.MenuItem{ID: "edit", Label: T("Edit Servers..."), Click: func(*mygo.MenuItem, *mygo.Window) { a.EditServers() }},
+		&mygo.MenuItem{ID: "share", Label: T("Share Server Config..."), Click: func(*mygo.MenuItem, *mygo.Window) { a.ShareServers() }},
+		&mygo.MenuItem{ID: "scan", Label: T("Scan QRCode from Screen..."), Click: func(*mygo.MenuItem, *mygo.Window) { a.ScanQR() }},
 		&mygo.MenuItem{ID: "import", Label: T("Import URL from Clipboard..."), Click: func(*mygo.MenuItem, *mygo.Window) { a.ImportClipboard() }},
 	)
 	return mygo.NewMenu([]*mygo.MenuItem{
@@ -53,6 +56,7 @@ func BuildMenu(s controller.State, a MenuActions) *mygo.Menu {
 		}},
 		{Label: T("Servers"), Submenu: servers},
 		{ID: "forward", Label: T("Forward Proxy..."), Click: func(*mygo.MenuItem, *mygo.Window) { a.Forward() }},
+		{ID: "online", Label: T("Online Config..."), Click: func(*mygo.MenuItem, *mygo.Window) { a.OnlineConfig() }},
 		mygo.Separator(),
 		{ID: "boot", Label: T("Start on Boot"), Type: mygo.MenuItemCheckbox, Checked: a.BootOn,
 			Click: func(it *mygo.MenuItem, _ *mygo.Window) { a.ToggleBoot(it.IsChecked()) }},
@@ -164,7 +168,14 @@ func RunTray(ctrl *controller.Controller, version string, logger *slog.Logger) e
 		ToggleBoot: func(on bool) {
 			report(mygo.App.SetOpenAtLogin(on))
 		},
-		ShowLogs: func() { openLogWindow(ctrl) },
+		ShowLogs:     func() { openLogWindow(ctrl) },
+		ShareServers: func() { OpenShareWindow(ctrl) },
+		OnlineConfig: func() { OpenOnlineConfigWindow(ctrl) },
+		ScanQR: func() {
+			notify := func(m string) { Notify(logger, m) }
+			open := func() { mygo.RunOnMain(func() { OpenConfigWindow(ctrl) }) }
+			go scanScreen(realScanDeps(ctrl, notify, open)) // capture and the dialog block
+		},
 		TogglePluginOutput: func(on bool) {
 			runAction(ctrl, logger, func() error { return ctrl.SetShowPluginOutput(on) })
 		},
@@ -198,6 +209,10 @@ func RunTray(ctrl *controller.Controller, version string, logger *slog.Logger) e
 			refresh(s)
 			msg, retrust := pluginAlert(last, s)
 			last = s
+			if n := ctrl.TakeNotice(); n != nil {
+				Notify(logger, Message(n))
+			}
+			mergeIntoOpenConfigWindow(ctrl.Config())
 			switch {
 			case retrust: // the plugin file changed: ask again, then reconnect
 				runAction(ctrl, logger, func() error { return ctrl.SelectServer(s.Current) })

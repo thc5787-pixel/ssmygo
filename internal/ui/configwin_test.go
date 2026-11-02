@@ -293,3 +293,50 @@ func TestSaveCapturesSelection(t *testing.T) {
 		t.Fatalf("saved index %d portable %v", s.index, s.portable)
 	}
 }
+
+func subConfig() *config.Config {
+	c := sample()
+	c.Configs = append(c.Configs, config.Server{Server: "hk.example.com", ServerPort: 443, Method: "aes-256-gcm",
+		Password: "pw", Remarks: "HK-sub", Group: "https://sub.example.com/s?token=x", Timeout: 5})
+	return c
+}
+
+// C-D4: subscription servers are read-only in Edit Servers.
+func TestConfigWinSubscriptionRowsReadOnly(t *testing.T) {
+	w, _, tt := newWin(subConfig(), nil)
+	w.sel = len(w.servers) - 1
+	tt.Frame()
+	if !tt.HasText("From subscription sub.example.com") {
+		t.Fatalf("texts %q", tt.Texts())
+	}
+	before := w.servers[w.sel].Remarks
+	tt.Click("Remarks")
+	tt.Type("zzz")
+	tt.Frame()
+	if w.servers[w.sel].Remarks != before {
+		t.Fatal("subscription server edited")
+	}
+	n := len(w.servers)
+	tt.Click("Delete")
+	tt.Click("Duplicate")
+	tt.Frame()
+	if len(w.servers) != n {
+		t.Fatal("subscription server deleted or duplicated")
+	}
+}
+
+func TestConfigWinMergeKeepsOwnEdits(t *testing.T) {
+	w, _, _ := newWin(subConfig(), nil)
+	w.servers[0].Remarks = "edited, unsaved"
+	next := subConfig()
+	next.Configs = append(next.Configs[:len(next.Configs)-1], config.Server{Server: "sg.example.com", ServerPort: 443,
+		Method: "aes-256-gcm", Password: "pw", Remarks: "SG-sub", Group: "https://sub.example.com/s?token=x", Timeout: 5})
+	w.MergeSubscriptions(next)
+	if w.servers[0].Remarks != "edited, unsaved" {
+		t.Fatal("own edit lost")
+	}
+	last := w.servers[len(w.servers)-1]
+	if last.Remarks != "SG-sub" || len(w.servers) != len(next.Configs) {
+		t.Fatalf("subscription rows not replaced: %d rows, last %q", len(w.servers), last.Remarks)
+	}
+}

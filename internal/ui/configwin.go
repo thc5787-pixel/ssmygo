@@ -2,6 +2,9 @@ package ui
 
 import (
 	"errors"
+	"fmt"
+	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -10,6 +13,7 @@ import (
 	"github.com/thc5787/ssmygo/internal/config"
 	"github.com/thc5787/ssmygo/internal/controller"
 	"github.com/thc5787/ssmygo/internal/i18n"
+	"github.com/thc5787/ssmygo/internal/subscribe"
 )
 
 // SaveFunc applies the edited servers (controller.SaveServers).
@@ -44,6 +48,10 @@ func newEditServer() editServer {
 	e.isNew = true
 	return e
 }
+
+// fromSubscription: the server came from a subscription (C-D4) and is
+// read-only here; the next update would overwrite any edit.
+func (e editServer) fromSubscription() bool { return !e.isNew && e.orig.Group != "" }
 
 // dirty reports whether the user added or changed this server.
 func (e editServer) dirty() bool { return e.isNew || e.formFields != e.base }
@@ -129,7 +137,7 @@ type ConfigWindow struct {
 // not drop them (deferred #7). They are already saved, so not "new".
 func (w *ConfigWindow) AppendServers(servers []config.Server) {
 	for _, s := range servers {
-		w.servers = append(w.servers, fromServer(s))
+		w.insertOwn(fromServer(s)) // above subscription servers
 	}
 }
 
@@ -229,6 +237,10 @@ func (w *ConfigWindow) View(c *mui.Context) {
 	w.list.Label = func(i int) string { return w.title(i) }
 	valid := w.sel >= 0 && w.sel < len(w.servers)
 	canSave := w.valid() && !w.saving
+	ro := valid && w.servers[w.sel].fromSubscription()
+	// Own servers stay above subscription servers: no moving across.
+	canUp := valid && !ro && w.sel > 0
+	canDown := valid && !ro && w.sel < len(w.servers)-1 && !w.servers[w.sel+1].fromSubscription()
 
 	if c.Shortcut(0, mui.KeyEscape) {
 		w.close()
@@ -253,6 +265,9 @@ func (w *ConfigWindow) View(c *mui.Context) {
 				}
 				e := &w.servers[w.sel]
 				_, errs := e.server()
+				if ro {
+					mui.Text(c, fmt.Sprintf(T("ssmygo.fromSub"), subscribe.Host(e.orig.Group))).TextColor(t.TextMuted)
+				}
 				mui.Form(c, func() {
 					mui.Fieldset(c, T("Server"), func() {
 						mui.Field(c, T("Server IP"), func() { mui.TextInput(c, &e.Server) }).Error(errMsg(errs, "server"))
@@ -274,9 +289,9 @@ func (w *ConfigWindow) View(c *mui.Context) {
 						})
 						mui.Field(c, T("Remarks"), func() { mui.TextInput(c, &e.Remarks) })
 						mui.Field(c, T("Timeout(Sec)"), func() { mui.TextInput(c, &e.Timeout) }).Error(errMsg(errs, "timeout"))
-						mui.Field(c, T("Group"), func() { mui.TextInput(c, &e.Group) })
+						mui.Field(c, T("Group"), func() { mui.TextInput(c, &e.Group).ReadOnly(true) })
 					})
-				})
+				}).Disabled(ro)
 			})
 		})
 
@@ -288,10 +303,9 @@ func (w *ConfigWindow) View(c *mui.Context) {
 		mui.Grid(c).ColumnTracks(mui.FitContent(), mui.FitContent(), mui.FitContent(), mui.Fr(1), mui.FitContent(), mui.FitContent()).
 			Gap(gap).AlignItems(mui.Center).Children(func() {
 			if mbtn(c, T("Add"), mui.KeyA, false, btnW, 1, 1) {
-				w.servers = append(w.servers, newEditServer())
-				w.sel = len(w.servers) - 1
+				w.sel = w.insertOwn(newEditServer()) // above subscription servers
 			}
-			if mbtn(c, T("Delete"), mui.KeyD, !valid, btnW, 1, 2) {
+			if mbtn(c, T("Delete"), mui.KeyD, !valid || ro, btnW, 1, 2) {
 				w.servers = append(w.servers[:w.sel], w.servers[w.sel+1:]...)
 				w.sel = max(0, min(w.sel, len(w.servers)-1))
 			}
@@ -307,18 +321,17 @@ func (w *ConfigWindow) View(c *mui.Context) {
 				port.Border(1, t.Danger).Tooltip(w.saveErr)
 			}
 
-			if mbtn(c, T("Duplicate"), mui.KeyC, !valid, btnW, 2, 1) {
+			if mbtn(c, T("Duplicate"), mui.KeyC, !valid || ro, btnW, 2, 1) {
 				d := w.servers[w.sel]
-				w.servers = append(w.servers, d)
-				w.sel = len(w.servers) - 1
+				w.sel = w.insertOwn(d)
 			}
 			mui.Checkbox(c, &w.portable, T("Portable Mode")).RowStart(2).ColumnStart(4).ColumnSpan(-1)
 
-			if mbtn(c, T("Move Up"), mui.KeyU, !valid || w.sel <= 0, btnW, 3, 1) {
+			if mbtn(c, T("Move Up"), mui.KeyU, !canUp, btnW, 3, 1) {
 				w.servers[w.sel-1], w.servers[w.sel] = w.servers[w.sel], w.servers[w.sel-1]
 				w.sel--
 			}
-			if mbtn(c, T("Move Down"), mui.KeyO, !valid || w.sel >= len(w.servers)-1, btnW, 3, 2) {
+			if mbtn(c, T("Move Down"), mui.KeyO, !canDown, btnW, 3, 2) {
 				w.servers[w.sel+1], w.servers[w.sel] = w.servers[w.sel], w.servers[w.sel+1]
 				w.sel++
 			}
@@ -380,4 +393,74 @@ func appendToOpenConfigWindow(servers []config.Server) {
 	}
 	v := configView
 	configWin.Update(func() { v.AppendServers(servers) })
+}
+
+// mergeIntoOpenConfigWindow refreshes an open Edit Servers window's
+// subscription rows after an update (spec §3.4).
+func mergeIntoOpenConfigWindow(cfg *config.Config) {
+	if configWin == nil || configWin.IsDestroyed() || configView == nil {
+		return
+	}
+	v := configView
+	configWin.Update(func() {
+		if v.subscriptionsDiffer(cfg) {
+			v.MergeSubscriptions(cfg)
+		}
+	})
+}
+
+// insertOwn adds e after the user's own servers (before subscription
+// servers) and returns its index.
+func (w *ConfigWindow) insertOwn(e editServer) int {
+	i := 0
+	for i < len(w.servers) && !w.servers[i].fromSubscription() {
+		i++
+	}
+	w.servers = slices.Insert(w.servers, i, e)
+	return i
+}
+
+// MergeSubscriptions takes cfg's subscription servers after an update,
+// keeping the rows (and unsaved edits) of the user's own servers.
+func (w *ConfigWindow) MergeSubscriptions(cfg *config.Config) {
+	var selOrig config.Server
+	selSub := w.sel >= 0 && w.sel < len(w.servers) && w.servers[w.sel].fromSubscription()
+	if selSub {
+		selOrig = w.servers[w.sel].orig
+	}
+	own := slices.DeleteFunc(slices.Clone(w.servers), func(e editServer) bool { return e.fromSubscription() })
+	merged := own
+	for _, s := range cfg.Configs {
+		if s.Group != "" {
+			merged = append(merged, fromServer(s))
+		}
+	}
+	w.servers = merged
+	if selSub {
+		w.sel = 0
+		for i, e := range w.servers {
+			if e.fromSubscription() && e.orig.Server == selOrig.Server && e.orig.ServerPort == selOrig.ServerPort && e.orig.Group == selOrig.Group {
+				w.sel = i
+				break
+			}
+		}
+	}
+	w.sel = min(w.sel, len(w.servers)-1)
+}
+
+// subscriptionsDiffer reports whether cfg's subscription servers differ
+// from the window's.
+func (w *ConfigWindow) subscriptionsDiffer(cfg *config.Config) bool {
+	var mine, theirs []config.Server
+	for _, e := range w.servers {
+		if e.fromSubscription() {
+			mine = append(mine, e.orig)
+		}
+	}
+	for _, s := range cfg.Configs {
+		if s.Group != "" {
+			theirs = append(theirs, s)
+		}
+	}
+	return !slices.EqualFunc(mine, theirs, func(a, b config.Server) bool { return reflect.DeepEqual(a, b) })
 }

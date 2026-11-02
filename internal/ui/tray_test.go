@@ -36,7 +36,7 @@ func TestBuildMenu(t *testing.T) {
 	for _, it := range m.Items() {
 		labels = append(labels, it.Label)
 	}
-	if strings.Join(labels, "|") != "System Proxy|Servers|Forward Proxy...||Start on Boot|Allow other Devices to connect|Help||Quit" {
+	if strings.Join(labels, "|") != "System Proxy|Servers|Forward Proxy...|Online Config...||Start on Boot|Allow other Devices to connect|Help||Quit" {
 		t.Fatalf("top level %q", labels)
 	}
 }
@@ -186,5 +186,21 @@ func TestTooltipErrorKeptWithRates(t *testing.T) {
 	s := controller.State{Mode: controller.Global, Servers: []string{strings.Repeat("长", 60)}, LastError: "port 1080 in use"}
 	if tip := Tooltip(s, "0.1.0", traffic.Sample{Up: 1, Down: 1}); !strings.Contains(tip, "⚠ port 1080 in use") {
 		t.Fatalf("error dropped: %q", tip)
+	}
+}
+
+func TestMenuHasCItems(t *testing.T) {
+	var shared, scanned, online bool
+	a := MenuActions{ShareServers: func() { shared = true }, ScanQR: func() { scanned = true }, OnlineConfig: func() { online = true }}
+	m := BuildMenu(controller.State{}, a)
+	for _, id := range []string{"share", "scan", "online"} {
+		it := m.ItemByID(id)
+		if it == nil {
+			t.Fatalf("menu lacks %s", id)
+		}
+		it.Click(it, nil)
+	}
+	if !shared || !scanned || !online {
+		t.Fatalf("share %v scan %v online %v", shared, scanned, online)
 	}
 }

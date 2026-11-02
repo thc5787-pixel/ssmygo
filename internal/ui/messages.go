@@ -23,6 +23,8 @@ func Message(err error) string {
 		untrusted *controller.PluginNotTrustedError
 		notFound  *plugin.NotFoundError
 		start     *plugin.StartError
+		replaced  *controller.SelectionReplacedError
+		subsFail  *controller.SubscriptionsFailedError
 	)
 	switch {
 	case errors.As(err, &port):
@@ -43,6 +45,12 @@ func Message(err error) string {
 		return fmt.Sprintf(i18n.T("ssmygo.pluginStart"), start.Name, detail)
 	case errors.Is(err, plugin.ErrCrashLoop):
 		return i18n.T("ssmygo.pluginCrashLoop")
+	case errors.As(err, &replaced):
+		return fmt.Sprintf(i18n.T("ssmygo.selReplaced"), replaced.Old, replaced.New)
+	case errors.As(err, &subsFail):
+		return fmt.Sprintf(i18n.T("ssmygo.subsFailed"), subsFail.Failed, subsFail.Total)
+	case errors.Is(err, controller.ErrBadSubscriptionURL):
+		return i18n.T("ssmygo.badSubURL")
 	}
 	return err.Error()
 }

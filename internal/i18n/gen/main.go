@@ -65,6 +65,12 @@ var extra = map[string][2]string{
 	"ssmygo.badSubURL":        {"URL must start with http:// or https://", "URL 必须以 http:// 或 https:// 开头"},
 	"ssmygo.dupSub":           {"Already added.", "已经添加过。"},
 	"ssmygo.removeSub":        {"Remove this subscription and its %d servers?", "移除这个订阅及其 %d 台服务器？"},
+	"ssmygo.selReplaced":      {"%s is no longer available; %s is selected.", "%s 已不存在，已选中 %s。"},
+	"ssmygo.subsFailed":       {"%[1]d of %[2]d subscriptions failed to update.", "%[2]d 个订阅中有 %[1]d 个更新失败。"},
+	"ssmygo.captureFailed":    {"Screen capture failed: %s", "截屏失败：%s"},
+	"ssmygo.fromSub":          {"From subscription %s (read-only; updates replace it)", "来自订阅 %s（只读，更新时会被替换）"},
+	"ssmygo.addSubTitle":      {"Add as online config (SIP008) subscription?", "添加为在线配置（SIP008）订阅？"},
+	"ssmygo.addSubOK":         {"Add", "添加"},
 }
 
 var mnemonic = regexp.MustCompile(`\s?\(&\w\)|&`)
