@@ -1,8 +1,14 @@
 package screencap
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestCaptureAll(t *testing.T) {
+	if os.Getenv("CI") != "" {
+		t.Skip("CI runners have no visible desktop to capture")
+	}
 	imgs, err := CaptureAll()
 	if err != nil {
 		t.Skipf("no interactive desktop: %v", err)

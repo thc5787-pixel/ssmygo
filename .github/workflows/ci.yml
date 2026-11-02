@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Test and build (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Test ssmygo
+        run: go test -count=1 ./...
+
+      - name: Test bundled shadowsocks-go (patched packages)
+        working-directory: third_party/shadowsocks-go
+        run: go test -count=1 ./service ./direct ./clientgroup
+
+      - name: Build (amd64 and arm64, with icon)
+        shell: pwsh
+        run: ./build.ps1 -SkipTests -Arch all
+
+      - name: Upload executables
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssmygo-${{ github.ref_name }}-${{ github.sha }}
+          path: build/ssmygo-*.exe
+          if-no-files-found: error
