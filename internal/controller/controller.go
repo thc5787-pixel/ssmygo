@@ -4,6 +4,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime/debug"
+	"slices"
 	"sync"
 	"time"
 
@@ -54,6 +56,11 @@ type Controller struct {
 	trafficSubs map[int]func(traffic.Snapshot)
 	nextID      int
 
+	updMu      sync.Mutex // serializes subscription updates
+	subResults map[string]SubResult
+	notice     error // shown once by the UI: see TakeNotice
+	bgCancel   context.CancelFunc
+
 	meter       *traffic.Meter // app lifetime: totals carry across Apply
 	sampler     *traffic.Sampler
 	trafficStop chan struct{}
@@ -71,6 +78,7 @@ func New(d Deps) (*Controller, error) {
 		runner:      core.NewRunner(tslog.Config{Level: slog.LevelWarn}.NewLoggerWithHandler(d.Logger.Handler()), meter),
 		subs:        map[int]func(State){},
 		trafficSubs: map[int]func(traffic.Snapshot){},
+		subResults:  map[string]SubResult{},
 		meter:       meter,
 		sampler:     traffic.NewSampler(meter, historyLen),
 	}
@@ -157,6 +165,13 @@ func (c *Controller) Start() error {
 	c.plug = started
 	if err := c.applyCore(c.cfg, port); coreErr == nil {
 		coreErr = err
+	}
+	// C-D3: update subscriptions in the background; the goroutine waits for
+	// this lock, so Start is not delayed.
+	if c.bgCancel == nil {
+		ctx, cancel := context.WithCancel(context.Background())
+		c.bgCancel = cancel
+		c.updateAllInBackground(ctx, slices.Clone(c.cfg.OnlineConfigSource))
 	}
 	if c.cfg.Enabled && (coreErr != nil || unusable(c.cfg) != nil) {
 		// Never leave the system proxy on a port we cannot serve, nor point it
@@ -603,6 +618,9 @@ func (c *Controller) Shutdown() {
 		return
 	}
 	c.started = false
+	if c.bgCancel != nil {
+		c.bgCancel()
+	}
 	if c.trafficStop != nil {
 		close(c.trafficStop)
 		c.trafficStop = nil
