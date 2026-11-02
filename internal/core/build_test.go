@@ -6,6 +6,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/database64128/shadowsocks-go/service"
@@ -32,6 +33,26 @@ func TestBuildGolden(t *testing.T) {
 			return c, sampleRules, 0
 		},
 		"rules": func() (*config.Config, *rules.Result, int) { return sampleConfig(), sampleRules, 0 },
+		"rules-user": func() (*config.Config, *rules.Result, int) {
+			rs := *sampleRules
+			rs.UserDirect = `C:\data\cache\domainsets\user-direct.gob`
+			rs.UserProxied = `C:\data\cache\domainsets\user-proxied.gob`
+			return sampleConfig(), &rs, 0
+		},
+		"rules-user-direct-only": func() (*config.Config, *rules.Result, int) {
+			rs := *sampleRules
+			rs.UserDirect = `C:\data\cache\domainsets\user-direct.gob`
+			c := sampleConfig()
+			c.GeositePreferDirect = true
+			return c, &rs, 0
+		},
+		"global-user": func() (*config.Config, *rules.Result, int) {
+			rs := *sampleRules
+			rs.UserDirect = `C:\data\cache\domainsets\user-direct.gob`
+			c := sampleConfig()
+			c.Global = true
+			return c, &rs, 0
+		},
 		"rules-preferdirect": func() (*config.Config, *rules.Result, int) {
 			c := sampleConfig()
 			c.GeositePreferDirect = true
@@ -255,5 +276,25 @@ func TestBuildUDPOffWithForward(t *testing.T) {
 		if r.Network != "tcp" {
 			t.Fatalf("route %s network %q", r.Name, r.Network)
 		}
+	}
+}
+
+// P1-D §3: private → user direct → user proxied → geosite direct → geosite
+// proxied. The router takes the first matching route, so a user "@@" rule
+// beats a geosite proxied domain and a user proxy rule beats geosite direct.
+func TestBuildUserRouteOrder(t *testing.T) {
+	rs := *sampleRules
+	rs.UserDirect, rs.UserProxied = "ud.gob", "up.gob"
+	sc, err := Build(sampleConfig(), &rs, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, r := range sc.Router.Routes {
+		got = append(got, r.Name+":"+r.Client)
+	}
+	want := []string{"private:direct", "user-direct:direct", "user-proxied:proxy", "direct:direct", "proxied:proxy"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("routes %v, want %v", got, want)
 	}
 }

@@ -111,7 +111,7 @@ func loadSet(t *testing.T, path string) domainset.DomainSet {
 
 func TestBuildMatches(t *testing.T) {
 	dir := t.TempDir()
-	r, err := Build(fixture(), []string{"private", "cn"}, []string{"geolocation-!cn"}, dir)
+	r, err := Build(fixture(), []string{"private", "cn"}, []string{"geolocation-!cn"}, "", dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,18 +131,18 @@ func TestBuildMatches(t *testing.T) {
 
 func TestBuildCache(t *testing.T) {
 	dir := t.TempDir()
-	r, err := Build(fixture(), []string{"cn"}, []string{"geolocation-!cn"}, dir)
+	r, err := Build(fixture(), []string{"cn"}, []string{"geolocation-!cn"}, "", dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	st1, _ := os.Stat(r.Direct)
 	time.Sleep(20 * time.Millisecond)
-	r2, _ := Build(fixture(), []string{"cn"}, []string{"geolocation-!cn"}, dir)
+	r2, _ := Build(fixture(), []string{"cn"}, []string{"geolocation-!cn"}, "", dir)
 	st2, _ := os.Stat(r2.Direct)
 	if !st1.ModTime().Equal(st2.ModTime()) {
 		t.Fatal("cache miss on identical input")
 	}
-	r3, _ := Build(fixture(), []string{"private"}, []string{"geolocation-!cn"}, dir)
+	r3, _ := Build(fixture(), []string{"private"}, []string{"geolocation-!cn"}, "", dir)
 	if loadSet(t, r3.Direct).Match("baidu.com") {
 		t.Fatal("changed groups not rebuilt")
 	}
@@ -170,7 +170,7 @@ func TestEmbeddedDLCParses(t *testing.T) {
 // must fit the 1 s startup budget.
 func TestBuildEmbeddedDefaults(t *testing.T) {
 	start := time.Now()
-	r, err := Build(assets.DLC(), []string{"private", "cn", "geolocation-!cn@cn"}, []string{"geolocation-!cn"}, t.TempDir())
+	r, err := Build(assets.DLC(), []string{"private", "cn", "geolocation-!cn@cn"}, []string{"geolocation-!cn"}, "", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestBuildAllocations(t *testing.T) {
 	var before, after runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&before)
-	if _, err := Build(dlc, []string{"private", "cn", "geolocation-!cn@cn"}, []string{"geolocation-!cn"}, t.TempDir()); err != nil {
+	if _, err := Build(dlc, []string{"private", "cn", "geolocation-!cn@cn"}, []string{"geolocation-!cn"}, "", t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
 	runtime.ReadMemStats(&after)
@@ -204,7 +204,7 @@ func TestBuildAllocations(t *testing.T) {
 
 // Deferred #8①: one mistyped group must not disable all rules.
 func TestBuildSkipsUnknownGroup(t *testing.T) {
-	r, err := Build(fixture(), []string{"cn", "nope"}, []string{"geolocation-!cn"}, t.TempDir())
+	r, err := Build(fixture(), []string{"cn", "nope"}, []string{"geolocation-!cn"}, "", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,13 +219,13 @@ func TestBuildSkipsUnknownGroup(t *testing.T) {
 // Deferred #8③: a new converter version must rebuild an otherwise valid cache.
 func TestBuildCacheVersion(t *testing.T) {
 	dir := t.TempDir()
-	r, _ := Build(fixture(), []string{"cn"}, []string{"geolocation-!cn"}, dir)
+	r, _ := Build(fixture(), []string{"cn"}, []string{"geolocation-!cn"}, "", dir)
 	st1, _ := os.Stat(r.Direct)
 	time.Sleep(20 * time.Millisecond)
 	old := converterVersion
 	converterVersion = old + "-next"
 	defer func() { converterVersion = old }()
-	r2, _ := Build(fixture(), []string{"cn"}, []string{"geolocation-!cn"}, dir)
+	r2, _ := Build(fixture(), []string{"cn"}, []string{"geolocation-!cn"}, "", dir)
 	st2, _ := os.Stat(r2.Direct)
 	if st1.ModTime().Equal(st2.ModTime()) {
 		t.Fatal("cache reused across converter versions")

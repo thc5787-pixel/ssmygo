@@ -1,0 +1,102 @@
+{
+  "servers": [
+    {
+      "name": "local",
+      "protocol": "mixed+udp",
+      "tcpListeners": [
+        {
+          "network": "tcp",
+          "address": "127.0.0.1:1080"
+        }
+      ]
+    },
+    {
+      "name": "local-udp",
+      "protocol": "socks5",
+      "udpListeners": [
+        {
+          "network": "udp",
+          "address": "127.0.0.1:1080"
+        }
+      ],
+      "mtu": 1500
+    }
+  ],
+  "clients": [
+    {
+      "name": "direct",
+      "protocol": "direct",
+      "enableTCP": true,
+      "enableUDP": true,
+      "mtu": 1500
+    },
+    {
+      "name": "proxy",
+      "protocol": "chacha20-ietf-poly1305",
+      "endpoint": "ss.example.com:8388",
+      "enableTCP": true,
+      "enableUDP": true,
+      "mtu": 1500,
+      "password": "pw"
+    }
+  ],
+  "domainSets": [
+    {
+      "name": "user-direct",
+      "type": "gob",
+      "path": "C:\\data\\cache\\domainsets\\user-direct.gob"
+    },
+    {
+      "name": "direct",
+      "type": "gob",
+      "path": "C:\\data\\cache\\domainsets\\direct.gob"
+    },
+    {
+      "name": "proxied",
+      "type": "gob",
+      "path": "C:\\data\\cache\\domainsets\\proxied.gob"
+    }
+  ],
+  "router": {
+    "defaultTCPClientName": "direct",
+    "defaultUDPClientName": "direct",
+    "routes": [
+      {
+        "name": "private",
+        "client": "direct",
+        "toPrefixes": [
+          "10.0.0.0/8",
+          "172.16.0.0/12",
+          "192.168.0.0/16",
+          "127.0.0.0/8",
+          "169.254.0.0/16",
+          "::1/128",
+          "fc00::/7",
+          "fe80::/10"
+        ],
+        "disableNameResolutionForIPRules": true
+      },
+      {
+        "name": "user-direct",
+        "client": "direct",
+        "toDomainSets": [
+          "user-direct"
+        ]
+      },
+      {
+        "name": "direct",
+        "client": "direct",
+        "toDomainSets": [
+          "direct"
+        ]
+      },
+      {
+        "name": "proxied",
+        "client": "proxy",
+        "toDomainSets": [
+          "proxied"
+        ]
+      }
+    ]
+  }
+}

@@ -191,9 +191,13 @@ func TestRunnerReapply(t *testing.T) {
 
 // Rules mode with real domain sets must actually start (not just marshal).
 func TestRunnerAppliesRulesMode(t *testing.T) {
-	rs, err := rules.Build(assets.DLC(), []string{"private", "cn"}, []string{"geolocation-!cn"}, t.TempDir())
+	// With user rules too: their gob sets must load.
+	rs, err := rules.Build(assets.DLC(), []string{"private", "cn"}, []string{"geolocation-!cn"}, "@@||google.com^\n||baidu.com^\n", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
+	}
+	if rs.UserDirect == "" || rs.UserProxied == "" {
+		t.Fatalf("user sets missing: %+v", rs)
 	}
 	up := aeadtest.Start(t, "aes-256-gcm", "pw")
 	cfg := config.Default()
@@ -488,7 +492,7 @@ func TestRunnerUDPPortBusy(t *testing.T) {
 // Final review #1: rules apply to every UDP packet, not just a session's
 // first. One association: private (direct), proxied domain (server), private.
 func TestRunnerUDPRoutesEveryPacket(t *testing.T) {
-	rs, err := rules.Build(assets.DLC(), []string{"private", "cn"}, []string{"geolocation-!cn"}, t.TempDir())
+	rs, err := rules.Build(assets.DLC(), []string{"private", "cn"}, []string{"geolocation-!cn"}, "", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

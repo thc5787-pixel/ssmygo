@@ -146,7 +146,8 @@ func (c *Controller) Start() error {
 		go c.runTraffic(c.trafficStop)
 	}
 
-	rs, err := rules.Build(c.d.DLC, c.cfg.GeositeDirectGroups, c.cfg.GeositeProxiedGroups, c.paths.DomainSets())
+	user, _ := os.ReadFile(c.paths.UserRule()) // missing: no user rules
+	rs, err := rules.Build(c.d.DLC, c.cfg.GeositeDirectGroups, c.cfg.GeositeProxiedGroups, string(user), c.paths.DomainSets())
 	if err != nil {
 		c.d.Logger.Error("rules unavailable, rules mode routes everything through the server", "err", err)
 		c.lastErr = fmt.Errorf("rules unavailable: %w", err)

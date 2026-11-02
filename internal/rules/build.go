@@ -12,10 +12,15 @@ import (
 )
 
 // Result holds the paths of the built gob domain sets and the requested
-// groups that dlc does not have (skipped).
+// groups that dlc does not have (skipped). UserDirect and UserProxied are
+// the user-rule.txt sets, empty when it has no such rules; UserSkipped are
+// the 1-based lines of user-rule.txt that were not understood.
 type Result struct {
 	Direct, Proxied string
 	Missing         []string
+
+	UserDirect, UserProxied string
+	UserSkipped             []int
 }
 
 // converterVersion is part of the cache key: bump it when the dlc → domain
@@ -23,9 +28,67 @@ type Result struct {
 var converterVersion = "1"
 
 // Build writes direct.gob and proxied.gob into outDir from the given groups
-// of dlc. Files are reused when dlc, the groups and the converter version
-// have not changed.
-func Build(dlc []byte, direct, proxied []string, outDir string) (Result, error) {
+// of dlc, and user-direct.gob and user-proxied.gob from user (the text of
+// user-rule.txt, see ParseUserRules). Files are reused when their inputs
+// and the converter version have not changed; the geosite and user sets
+// are keyed separately, so editing user-rule.txt does not rebuild geosite.
+func Build(dlc []byte, direct, proxied []string, user, outDir string) (Result, error) {
+	r, err := buildGeosite(dlc, direct, proxied, outDir)
+	if err != nil {
+		return Result{}, err
+	}
+	if err := buildUser(&r, user, outDir); err != nil {
+		return Result{}, err
+	}
+	return r, nil
+}
+
+// buildUser writes the user-rule sets and fills r's user fields.
+func buildUser(r *Result, user, outDir string) error {
+	ud, up, skipped := ParseUserRules(user)
+	r.UserSkipped = skipped
+	paths := [2]string{filepath.Join(outDir, "user-direct.gob"), filepath.Join(outDir, "user-proxied.gob")}
+	sets := [2][]Domain{ud, up}
+	stamp := filepath.Join(outDir, "user-stamp")
+	h := sha256.Sum256([]byte("v" + converterVersion + "|" + user))
+	key := hex.EncodeToString(h[:])
+	fresh := false
+	if b, err := os.ReadFile(stamp); err == nil && string(b) == key {
+		fresh = true
+		for i, p := range paths {
+			if len(sets[i]) > 0 && !exists(p) {
+				fresh = false
+			}
+		}
+	}
+	if !fresh {
+		if err := os.MkdirAll(outDir, 0o755); err != nil {
+			return err
+		}
+		os.Remove(stamp) // a crash below must not leave a stale stamp
+		for i, p := range paths {
+			if len(sets[i]) == 0 {
+				os.Remove(p)
+				continue
+			}
+			if err := writeGob(p, sets[i]); err != nil {
+				return err
+			}
+		}
+		if err := os.WriteFile(stamp, []byte(key), 0o644); err != nil {
+			return err
+		}
+	}
+	if len(ud) > 0 {
+		r.UserDirect = paths[0]
+	}
+	if len(up) > 0 {
+		r.UserProxied = paths[1]
+	}
+	return nil
+}
+
+func buildGeosite(dlc []byte, direct, proxied []string, outDir string) (Result, error) {
 	r := Result{Direct: filepath.Join(outDir, "direct.gob"), Proxied: filepath.Join(outDir, "proxied.gob")}
 	stamp := filepath.Join(outDir, "stamp")
 	key := cacheKey(dlc, direct, proxied)

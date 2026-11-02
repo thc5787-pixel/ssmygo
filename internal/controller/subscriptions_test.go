@@ -269,10 +269,16 @@ func TestFailedCommitNoNotice(t *testing.T) {
 	a := subServer(t, func() (int, string) { return 200, doc })
 	e.writeConfig(func(c *config.Config) {
 		withSub(a, "old")(c)
+		// Added after Start: the startup update would fail too and race
+		// this test with its own (true) notice.
+		c.OnlineConfigSource = nil
 		c.Index = 1
 		c.Enabled = true
 	})
 	c := e.start()
+	if err := c.AddSubscription(a); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := c.UpdateSubscription(context.Background(), a); err == nil {
 		t.Fatal("update with a missing plugin succeeded")
 	}

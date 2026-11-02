@@ -127,10 +127,6 @@ func Build(cfg *config.Config, rs *rules.Result, pluginPort int) (*service.Confi
 	if cfg.Global || rs == nil {
 		return sc, notRunning(pluginDown)
 	}
-	sc.DomainSets = []domainset.Config{
-		{Name: "direct", Type: "gob", Path: rs.Direct},
-		{Name: "proxied", Type: "gob", Path: rs.Proxied},
-	}
 	// With UDP the routes leave Network empty: they apply to both (A2-D4).
 	network := "tcp"
 	if udp {
@@ -139,8 +135,19 @@ func Build(cfg *config.Config, rs *rules.Result, pluginPort int) (*service.Confi
 	sc.Router.Routes = []router.RouteConfig{
 		// Only literal IPs: resolving every domain to test it would cost a DNS lookup per request.
 		{Name: "private", Network: network, Client: directName, ToPrefixes: privatePrefixes, DisableNameResolutionForIPRules: true},
-		{Name: "direct", Network: network, Client: directName, ToDomainSets: []string{"direct"}},
-		{Name: "proxied", Network: network, Client: proxyName, ToDomainSets: []string{"proxied"}},
+	}
+	// The first matching route wins: user-rule.txt goes before geosite (P1-D spec, section 3).
+	for _, set := range []struct{ name, path, client string }{
+		{"user-direct", rs.UserDirect, directName},
+		{"user-proxied", rs.UserProxied, proxyName},
+		{"direct", rs.Direct, directName},
+		{"proxied", rs.Proxied, proxyName},
+	} {
+		if set.path == "" {
+			continue
+		}
+		sc.DomainSets = append(sc.DomainSets, domainset.Config{Name: set.name, Type: "gob", Path: set.path})
+		sc.Router.Routes = append(sc.Router.Routes, router.RouteConfig{Name: set.name, Network: network, Client: set.client, ToDomainSets: []string{set.name}})
 	}
 	return sc, notRunning(pluginDown)
 }
