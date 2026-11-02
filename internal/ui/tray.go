@@ -84,9 +84,6 @@ func Tooltip(s controller.State, version string, rate traffic.Sample) string {
 	case controller.Global:
 		lines = append(lines, T("System Proxy On: ")+T("Global"))
 	}
-	if rate != (traffic.Sample{}) {
-		lines = append(lines, "↑ "+traffic.FormatRate(rate.Up)+" ↓ "+traffic.FormatRate(rate.Down))
-	}
 	if s.ForwardIgnored {
 		lines = append(lines, T("ssmygo.forwardIgnored"))
 	}
@@ -99,6 +96,14 @@ func Tooltip(s controller.State, version string, rate traffic.Sample) string {
 			msg = Message(s.Err)
 		}
 		lines = append(lines, "⚠ "+msg)
+	}
+	// The rates line goes last and gives way first, so it never pushes a
+	// warning out of the 127-rune limit.
+	if rate != (traffic.Sample{}) {
+		withRate := append(lines, "↑ "+traffic.FormatRate(rate.Up)+" ↓ "+traffic.FormatRate(rate.Down))
+		if tip := strings.Join(withRate, "\n"); len([]rune(tip)) <= 127 {
+			return tip
+		}
 	}
 	tip := strings.Join(lines, "\n")
 	if r := []rune(tip); len(r) > 127 { // Windows notification-area limit

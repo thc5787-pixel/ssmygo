@@ -168,3 +168,38 @@ func TestPluginFilter(t *testing.T) {
 		t.Fatalf("unfiltered %q", got)
 	}
 }
+
+// Final review: on rotation the old file's unread tail is read first, and
+// the window is not cleared.
+func TestRotationKeepsOldTail(t *testing.T) {
+	dir := t.TempDir()
+	p, old := filepath.Join(dir, "ssmygo.log"), filepath.Join(dir, "ssmygo.1.log")
+	appendFile(t, p, "old 1\n")
+	tl := Open(p)
+	tl.Rotated = old
+	poll(t, tl)
+	appendFile(t, p, "old 2\n")
+	if err := os.Rename(p, old); err != nil {
+		t.Fatal(err)
+	}
+	appendFile(t, p, "new 1\n")
+	got, reset := poll(t, tl)
+	if reset || strings.Join(got, "|") != "old 2|new 1" {
+		t.Fatalf("got %q reset=%v", got, reset)
+	}
+}
+
+// Final review: logx must be able to rename the file while Poll has it open.
+func TestRenameWhilePollHasItOpen(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "ssmygo.log")
+	appendFile(t, p, "x\n")
+	f, err := openShared(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := os.Rename(p, filepath.Join(dir, "ssmygo.1.log")); err != nil {
+		t.Fatalf("rename blocked by an open tail: %v", err)
+	}
+}

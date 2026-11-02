@@ -61,6 +61,8 @@ func newLogView(src logSource) *logView {
 	l := &logView{src: src, v: src.LogViewer(), tail: logtail.Open(src.LogPath()), buf: logtail.NewBuffer(logMaxLines),
 		showPlugin: src.State().ShowPluginOutput, snap: src.Traffic(), selected: -1}
 	l.list.FollowEnd = true
+	// logx renames ssmygo.log to ssmygo.1.log when it rotates.
+	l.tail.Rotated = strings.TrimSuffix(src.LogPath(), ".log") + ".1.log"
 	l.pct = l.v.Splitter * 100
 	return l
 }
@@ -354,7 +356,9 @@ func OpenLogWindow(ctrl *controller.Controller) {
 	})
 	win.OnClose(func(*mygo.CloseEvent) {
 		l.v.Maximized = win.IsMaximized()
-		if !l.v.Maximized {
+		// A minimized window's bounds are Windows' parking spot (-32000):
+		// keep the last saved position instead.
+		if !l.v.Maximized && !win.IsMinimized() {
 			b := win.Bounds()
 			l.v.Left, l.v.Top, l.v.Width, l.v.Height = b.X, b.Y, b.Width, b.Height
 		}

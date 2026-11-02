@@ -180,3 +180,11 @@ func TestBadgeUpdatesOnlyOnChange(t *testing.T) {
 		t.Fatalf("badge cleared: %d icon updates", icons)
 	}
 }
+
+// Final review: the rates line never pushes an error out of the tooltip.
+func TestTooltipErrorKeptWithRates(t *testing.T) {
+	s := controller.State{Mode: controller.Global, Servers: []string{strings.Repeat("长", 60)}, LastError: "port 1080 in use"}
+	if tip := Tooltip(s, "0.1.0", traffic.Sample{Up: 1, Down: 1}); !strings.Contains(tip, "⚠ port 1080 in use") {
+		t.Fatalf("error dropped: %q", tip)
+	}
+}

@@ -80,6 +80,11 @@ func (v *LogViewer) UnmarshalJSON(b []byte) error {
 	if v.Width < 400 || v.Height < 240 {
 		v.Width, v.Height = d.Width, d.Height
 	}
+	// Windows parks minimized windows at -32000; such a position (or any far
+	// off-screen one) reopens the window centred instead.
+	if v.Left < -10000 || v.Top < -10000 {
+		v.Left, v.Top = 0, 0
+	}
 	if v.Splitter <= 0 || v.Splitter >= 1 {
 		v.Splitter = d.Splitter
 	}

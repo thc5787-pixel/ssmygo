@@ -20,6 +20,10 @@ type Tail struct {
 	info    os.FileInfo // last seen; nil before the first successful Poll
 	offset  int64
 	pending []byte // a line not yet ended by '\n'
+
+	// Rotated is where the log moves when it rotates (logx: ssmygo.1.log).
+	// When set, a rotation finishes the old file instead of starting over.
+	Rotated string
 }
 
 // Open starts following path. Nothing is read until Poll.
@@ -34,7 +38,7 @@ func Open(path string) *Tail { return &Tail{path: path} }
 // The file is opened and closed on every call, so it never blocks logx's
 // rename on Windows.
 func (t *Tail) Poll() (lines []string, reset bool, err error) {
-	f, err := os.Open(t.path)
+	f, err := openShared(t.path)
 	if err != nil {
 		return nil, false, err
 	}
@@ -43,7 +47,17 @@ func (t *Tail) Poll() (lines []string, reset bool, err error) {
 	if err != nil {
 		return nil, false, err
 	}
-	if t.info != nil && (!os.SameFile(t.info, info) || info.Size() < t.offset) {
+	switch {
+	case t.info != nil && !os.SameFile(t.info, info):
+		// Rotated: finish the old file under its new name, then read the
+		// new one from its start. Without the old file, start over.
+		old, ok := t.finishRotated()
+		if !ok {
+			reset = true
+		}
+		lines = old
+		t.offset, t.pending = 0, nil
+	case t.info != nil && info.Size() < t.offset: // truncated
 		reset = true
 		t.offset, t.pending = 0, nil
 	}
@@ -69,22 +83,59 @@ func (t *Tail) Poll() (lines []string, reset bool, err error) {
 			b = nil
 		}
 	}
-	data := append(t.pending, b...)
+	got, rest := splitLines(append(t.pending, b...))
+	lines = append(lines, got...)
 	t.pending = nil
+	if len(rest) > window { // a runaway line with no end: show what we have
+		lines = append(lines, string(rest))
+	} else if len(rest) > 0 {
+		t.pending = append([]byte(nil), rest...)
+	}
+	return lines, reset, nil
+}
+
+// finishRotated reads what the old file gained since the last Poll, from
+// t.Rotated, if that is the file this Tail was reading. Its last line is
+// complete even without a newline: nothing more will be written to it.
+func (t *Tail) finishRotated() ([]string, bool) {
+	if t.Rotated == "" {
+		return nil, false
+	}
+	f, err := openShared(t.Rotated)
+	if err != nil {
+		return nil, false
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || !os.SameFile(t.info, info) || info.Size() < t.offset {
+		return nil, false
+	}
+	start := max(t.offset, info.Size()-window)
+	if _, err := f.Seek(start, io.SeekStart); err != nil {
+		return nil, false
+	}
+	b, err := io.ReadAll(io.LimitReader(f, info.Size()-start))
+	if err != nil {
+		return nil, false
+	}
+	lines, rest := splitLines(append(t.pending, b...))
+	if len(rest) > 0 {
+		lines = append(lines, string(rest))
+	}
+	return lines, true
+}
+
+// splitLines cuts data at '\n' (dropping a '\r' before it) and returns the
+// complete lines and what follows the last newline.
+func splitLines(data []byte) (lines []string, rest []byte) {
 	for {
 		i := bytes.IndexByte(data, '\n')
 		if i < 0 {
-			break
+			return lines, data
 		}
 		lines = append(lines, string(bytes.TrimSuffix(data[:i], []byte{'\r'})))
 		data = data[i+1:]
 	}
-	if len(data) > window { // a runaway line with no end: show what we have
-		lines = append(lines, string(data))
-	} else if len(data) > 0 {
-		t.pending = append([]byte(nil), data...)
-	}
-	return lines, reset, nil
 }
 
 // CutLine prepares a line for display: invalid UTF-8 becomes U+FFFD and
