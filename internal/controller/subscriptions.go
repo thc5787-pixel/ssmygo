@@ -209,3 +209,16 @@ func (c *Controller) updateAllInBackground(ctx context.Context, urls []string) {
 		}
 	}()
 }
+
+// GroupSize is how many servers came from subscription rawURL.
+func (c *Controller) GroupSize(rawURL string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := 0
+	for _, s := range c.cfg.Configs {
+		if s.Group == rawURL {
+			n++
+		}
+	}
+	return n
+}

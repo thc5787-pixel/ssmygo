@@ -29,10 +29,14 @@ var keys = []string{
 	"Help", "Show Logs...", "Show Plugin Output",
 	"Log Viewer", "&File", "&Open Location", "E&xit", "&View", "&Clear Logs", "Change &Font", "&Wrap Text",
 	"&Top Most", "&Show Toolbar", "Inbound", "Outbound",
+	"Online Config...", "Share Server Config...", "Scan QRCode from Screen...",
+	"No QRCode found. Try to zoom in or move it to the center of the screen.", "Invalid QR Code content: {0}",
 }
 
 // resxNames are WPF strings (Localization/Strings*.resx), stored as "resx.<name>".
-var resxNames = []string{"ForwardProxy", "Type", "NoProxy", "Details", "Address", "Port", "Timeout", "CredentialsOptional", "Username"}
+var resxNames = []string{"ForwardProxy", "Type", "NoProxy", "Details", "Address", "Port", "Timeout", "CredentialsOptional", "Username",
+	"updateButton_Content", "updateAllButton_Content", "copyLinkButton_Content", "removeButton_Content", "addButton_Content",
+	"Copy", "ServerSharing", "OnlineConfigDelivery"}
 
 // extra are strings the original lacks: key → {en, zh-Hans}.
 var extra = map[string][2]string{
@@ -58,6 +62,9 @@ var extra = map[string][2]string{
 	"ssmygo.logUnavailable":   {"Log file not available: %s", "日志文件不可用：%s"},
 	"ssmygo.total":            {"Total", "累计"},
 	"ssmygo.fontSize":         {"Size", "字号"},
+	"ssmygo.badSubURL":        {"URL must start with http:// or https://", "URL 必须以 http:// 或 https:// 开头"},
+	"ssmygo.dupSub":           {"Already added.", "已经添加过。"},
+	"ssmygo.removeSub":        {"Remove this subscription and its %d servers?", "移除这个订阅及其 %d 台服务器？"},
 }
 
 var mnemonic = regexp.MustCompile(`\s?\(&\w\)|&`)
