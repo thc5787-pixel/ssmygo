@@ -71,3 +71,26 @@ Diff vs previous state:
      third_party/shadowsocks-go/service/registry.go     | 36 +++++++++++++++++++
      .../shadowsocks-go/service/registry_test.go        | 42 ++++++++++++++++++++++
      3 files changed, 94 insertions(+), 2 deletions(-)
+
+## Patch A3 — route every UDP packet (NAT relay)
+
+Upstream `UDPNATRelay` picks the UDP client once, from a client address's
+first packet, and sends every later packet from that address through it. In
+rules mode that sends traffic meant for the proxy out direct (and past a
+fail-closed client) once a socket's first packet went to a LAN address.
+
+- `service/udp_nat.go`: the NAT table is two levels — client address →
+  `natClientEntry` (SOCKS unpacker, pktinfo) → one `natEntry` session per
+  routed UDP client name. The router runs for every packet in the receive
+  loop; the session for that client is created on first use. A client entry
+  leaves the table when its last session ends. `Stop` stops every session.
+- Constraint: routing in the receive loop must not block, so routes must not
+  resolve names. ssmygo configures no resolvers (upstream refuses such
+  routes without one). `UDPSessionRelay` (Shadowsocks 2022 server side) is
+  unchanged; ssmygo does not use it.
+
+Tests: `internal/core` `TestRunnerUDPRoutesEveryPacket`.
+
+Diff vs previous state:
+     third_party/shadowsocks-go/service/udp_nat.go | 108 +++++++++++++++-----------
+     1 file changed, 64 insertions(+), 44 deletions(-)

@@ -40,13 +40,19 @@ type natEntry struct {
 	//  - During initialization, if the swapped-out value is non-nil,
 	//    initialization must not proceed.
 	//  - During shutdown, if the swapped-out value is nil, preceed to the next entry.
-	state              atomic.Pointer[net.UDPConn]
+	state         atomic.Pointer[net.UDPConn]
+	natConnSendCh chan<- *natQueuedPacket
+	serverConn    *net.UDPConn
+	logger        *tslog.Logger
+}
+
+// natClientEntry holds one client address's sessions, one per routed UDP
+// client (ssmygo patch A3: every packet is routed, not only the first).
+type natClientEntry struct {
 	clientPktinfo      atomic.Pointer[[]byte]
 	clientPktinfoCache []byte
-	natConnSendCh      chan<- *natQueuedPacket
-	serverConn         *net.UDPConn
 	serverConnUnpacker zerocopy.ServerUnpacker
-	logger             *tslog.Logger
+	sessions           map[string]*natEntry
 }
 
 // natUplinkGeneric is used for passing information about relay uplink to the relay goroutine.
@@ -91,7 +97,7 @@ type UDPNATRelay struct {
 	mu                     sync.Mutex
 	wg                     sync.WaitGroup
 	mwg                    sync.WaitGroup
-	table                  map[netip.AddrPort]*natEntry
+	table                  map[netip.AddrPort]*natClientEntry
 }
 
 func NewUDPNATRelay(
@@ -121,7 +127,7 @@ func NewUDPNATRelay(
 				}
 			},
 		},
-		table: make(map[netip.AddrPort]*natEntry),
+		table: make(map[netip.AddrPort]*natClientEntry),
 	}
 }
 
@@ -205,14 +211,11 @@ func (s *UDPNATRelay) recvFromServerConnGeneric(ctx context.Context, lnc *udpRel
 
 		s.mu.Lock()
 
-		entry, ok := s.table[clientAddrPort]
+		client, ok := s.table[clientAddrPort]
 		if !ok {
-			entry = &natEntry{
-				serverConn: lnc.serverConn,
-				logger:     lnc.logger,
-			}
+			client = &natClientEntry{sessions: make(map[string]*natEntry)}
 
-			entry.serverConnUnpacker, err = s.server.NewUnpacker()
+			client.serverConnUnpacker, err = s.server.NewUnpacker()
 			if err != nil {
 				lnc.logger.Warn("Failed to create unpacker for serverConn",
 					tslog.AddrPort("clientAddress", clientAddrPort),
@@ -225,7 +228,7 @@ func (s *UDPNATRelay) recvFromServerConnGeneric(ctx context.Context, lnc *udpRel
 			}
 		}
 
-		queuedPacket.targetAddr, queuedPacket.start, queuedPacket.length, err = entry.serverConnUnpacker.UnpackInPlace(packetBuf, clientAddrPort, s.packetBufFrontHeadroom, n)
+		queuedPacket.targetAddr, queuedPacket.start, queuedPacket.length, err = client.serverConnUnpacker.UnpackInPlace(packetBuf, clientAddrPort, s.packetBufFrontHeadroom, n)
 		if err != nil {
 			lnc.logger.Warn("Failed to unpack packet from serverConn",
 				tslog.AddrPort("clientAddress", clientAddrPort),
@@ -243,7 +246,7 @@ func (s *UDPNATRelay) recvFromServerConnGeneric(ctx context.Context, lnc *udpRel
 
 		cmsg := cmsgBuf[:cmsgn]
 
-		if !bytes.Equal(entry.clientPktinfoCache, cmsg) {
+		if !bytes.Equal(client.clientPktinfoCache, cmsg) {
 			m, err := conn.ParseSocketControlMessage(cmsg)
 			if err != nil {
 				lnc.logger.Error("Failed to parse pktinfo control message from serverConn",
@@ -259,8 +262,8 @@ func (s *UDPNATRelay) recvFromServerConnGeneric(ctx context.Context, lnc *udpRel
 
 			clientPktinfoCache := make([]byte, len(cmsg))
 			copy(clientPktinfoCache, cmsg)
-			entry.clientPktinfo.Store(&clientPktinfoCache)
-			entry.clientPktinfoCache = clientPktinfoCache
+			client.clientPktinfo.Store(&clientPktinfoCache)
+			client.clientPktinfoCache = clientPktinfoCache
 
 			if lnc.logger.Enabled(slog.LevelDebug) {
 				lnc.logger.Debug("Updated client pktinfo",
@@ -272,10 +275,36 @@ func (s *UDPNATRelay) recvFromServerConnGeneric(ctx context.Context, lnc *udpRel
 			}
 		}
 
+		// ssmygo patch A3: route every packet. Routing runs here, in the
+		// receive loop: routes must not resolve names (ssmygo configures no
+		// resolvers, so they cannot).
+		c, err := s.router.GetUDPClient(ctx, router.RequestInfo{
+			ServerIndex:    s.serverIndex,
+			SourceAddrPort: clientAddrPort,
+			TargetAddr:     queuedPacket.targetAddr,
+		})
+		if err != nil {
+			lnc.logger.Warn("Failed to get UDP client for packet",
+				tslog.AddrPort("clientAddress", clientAddrPort),
+				tslog.ConnAddrp("targetAddress", &queuedPacket.targetAddr),
+				tslog.Err(err),
+			)
+			s.putQueuedPacket(queuedPacket)
+			s.mu.Unlock()
+			continue
+		}
+		routedName := c.Info().Name
+
+		entry, ok := client.sessions[routedName]
 		if !ok {
+			entry = &natEntry{
+				serverConn: lnc.serverConn,
+				logger:     lnc.logger,
+			}
 			natConnSendCh := make(chan *natQueuedPacket, lnc.sendChannelCapacity)
 			entry.natConnSendCh = natConnSendCh
-			s.table[clientAddrPort] = entry
+			client.sessions[routedName] = entry
+			s.table[clientAddrPort] = client
 
 			s.wg.Go(func() {
 				var sendChClean bool
@@ -283,7 +312,10 @@ func (s *UDPNATRelay) recvFromServerConnGeneric(ctx context.Context, lnc *udpRel
 				defer func() {
 					s.mu.Lock()
 					close(natConnSendCh)
-					delete(s.table, clientAddrPort)
+					delete(client.sessions, routedName)
+					if len(client.sessions) == 0 && s.table[clientAddrPort] == client {
+						delete(s.table, clientAddrPort)
+					}
 					s.mu.Unlock()
 
 					if !sendChClean {
@@ -292,20 +324,6 @@ func (s *UDPNATRelay) recvFromServerConnGeneric(ctx context.Context, lnc *udpRel
 						}
 					}
 				}()
-
-				c, err := s.router.GetUDPClient(ctx, router.RequestInfo{
-					ServerIndex:    s.serverIndex,
-					SourceAddrPort: clientAddrPort,
-					TargetAddr:     queuedPacket.targetAddr,
-				})
-				if err != nil {
-					lnc.logger.Warn("Failed to get UDP client for new NAT session",
-						tslog.AddrPort("clientAddress", clientAddrPort),
-						tslog.ConnAddrp("targetAddress", &queuedPacket.targetAddr),
-						tslog.Err(err),
-					)
-					return
-				}
 
 				clientInfo, clientSession, err := c.NewSession(ctx)
 				if err != nil {
@@ -344,7 +362,7 @@ func (s *UDPNATRelay) recvFromServerConnGeneric(ctx context.Context, lnc *udpRel
 					return
 				}
 
-				serverConnPacker, err := entry.serverConnUnpacker.NewPacker()
+				serverConnPacker, err := client.serverConnUnpacker.NewPacker()
 				if err != nil {
 					lnc.logger.Warn("Failed to create packer for serverConn",
 						tslog.AddrPort("clientAddress", clientAddrPort),
@@ -389,7 +407,7 @@ func (s *UDPNATRelay) recvFromServerConnGeneric(ctx context.Context, lnc *udpRel
 				s.relayNatConnToServerConnGeneric(natDownlinkGeneric{
 					clientName:         clientInfo.Name,
 					clientAddrPort:     clientAddrPort,
-					clientPktinfo:      &entry.clientPktinfo,
+					clientPktinfo:      &client.clientPktinfo,
 					natConn:            natConn,
 					natConnRecvBufSize: clientSession.MaxPacketSize,
 					natConnUnpacker:    clientSession.Unpacker,
@@ -619,17 +637,19 @@ func (s *UDPNATRelay) Stop() error {
 	s.mwg.Wait()
 
 	s.mu.Lock()
-	for clientAddrPort, entry := range s.table {
-		natConn := entry.state.Swap(entry.serverConn)
-		if natConn == nil {
-			continue
-		}
+	for clientAddrPort, client := range s.table {
+		for _, entry := range client.sessions {
+			natConn := entry.state.Swap(entry.serverConn)
+			if natConn == nil {
+				continue
+			}
 
-		if err := natConn.SetReadDeadline(conn.ALongTimeAgo); err != nil {
-			entry.logger.Error("Failed to set read deadline on natConn",
-				tslog.AddrPort("clientAddress", clientAddrPort),
-				tslog.Err(err),
-			)
+			if err := natConn.SetReadDeadline(conn.ALongTimeAgo); err != nil {
+				entry.logger.Error("Failed to set read deadline on natConn",
+					tslog.AddrPort("clientAddress", clientAddrPort),
+					tslog.Err(err),
+				)
+			}
 		}
 	}
 	s.mu.Unlock()

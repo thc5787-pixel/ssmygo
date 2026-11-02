@@ -483,3 +483,51 @@ func TestRunnerUDPPortBusy(t *testing.T) {
 		t.Fatal("TCP listener left running after the UDP listen failed")
 	}
 }
+
+// Final review #1: rules apply to every UDP packet, not just a session's
+// first. One association: private (direct), proxied domain (server), private.
+func TestRunnerUDPRoutesEveryPacket(t *testing.T) {
+	rs, err := rules.Build(assets.DLC(), []string{"private", "cn"}, []string{"geolocation-!cn"}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := aeadtest.StartUDP(t, "aes-256-gcm", "pw")
+	cfg := config.Default()
+	cfg.LocalPort = freePort(t)
+	cfg.Enabled = true
+	cfg.Configs = []config.Server{{Server: "127.0.0.1", ServerPort: int(srv.Addr.Port()), Method: "aes-256-gcm", Password: "pw"}}
+	sc, err := Build(cfg, &rs, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewRunner(quietLogger())
+	defer r.Stop()
+	if err := r.Apply(sc); err != nil {
+		t.Fatal(err)
+	}
+	target := udpEcho(t)
+	s := associate(t, cfg.LocalPort)
+	if err := udpExchange(s, target, "lan first", 3*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if n := srv.Packets(); n != 0 {
+		t.Fatalf("private target reached the server (%d packets)", n)
+	}
+	// A proxied domain on the same socket must reach the server, not go direct.
+	if err := s.Send("nx-ssmygo-test.google.com:9", []byte("proxied")); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for srv.Packets() == 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if srv.Packets() != 1 || srv.LastATYP() != 3 {
+		t.Fatalf("proxied packet: server packets %d ATYP %d, want 1 and 3", srv.Packets(), srv.LastATYP())
+	}
+	if err := udpExchange(s, target, "lan again", 3*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if srv.Packets() != 1 {
+		t.Fatalf("private target reached the server after a proxied packet")
+	}
+}
