@@ -49,6 +49,8 @@ func Message(err error) string {
 		return fmt.Sprintf(i18n.T("ssmygo.selReplaced"), replaced.Old, replaced.New)
 	case errors.As(err, &subsFail):
 		return fmt.Sprintf(i18n.T("ssmygo.subsFailed"), subsFail.Failed, subsFail.Total)
+	case errors.Is(err, controller.ErrNoStrategyMembers):
+		return i18n.T("ssmygo.noStrategyMembers")
 	case errors.Is(err, controller.ErrBadSubscriptionURL):
 		return i18n.T("ssmygo.badSubURL")
 	}

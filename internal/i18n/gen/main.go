@@ -31,12 +31,15 @@ var keys = []string{
 	"&Top Most", "&Show Toolbar", "Inbound", "Outbound",
 	"Online Config...", "Share Server Config...", "Scan QRCode from Screen...",
 	"No QRCode found. Try to zoom in or move it to the center of the screen.", "Invalid QR Code content: {0}",
+	"Load Balance", "High Availability", "Edit Hotkeys...", "Register hotkey failed",
 }
 
 // resxNames are WPF strings (Localization/Strings*.resx), stored as "resx.<name>".
 var resxNames = []string{"ForwardProxy", "Type", "NoProxy", "Details", "Address", "Port", "Timeout", "CredentialsOptional", "Username",
 	"updateButton_Content", "updateAllButton_Content", "copyLinkButton_Content", "removeButton_Content", "addButton_Content",
-	"Copy", "ServerSharing", "OnlineConfigDelivery"}
+	"Copy", "ServerSharing", "OnlineConfigDelivery",
+	"Hotkeys", "ToggleSystemProxy", "ToggleProxyMode", "AllowClientsFromLAN", "OpenLogsWindow", "SwitchToPreviousServer",
+	"SwitchToNextServer", "RegisterHotkeysAtStartup", "registerAllButton_Content", "saveButton_Content", "cancelButton_Content"}
 
 // extra are strings the original lacks: key → {en, zh-Hans}.
 var extra = map[string][2]string{
@@ -71,6 +74,12 @@ var extra = map[string][2]string{
 	"ssmygo.fromSub":          {"From subscription %s (read-only; updates replace it)", "来自订阅 %s（只读，更新时会被替换）"},
 	"ssmygo.addSubTitle":      {"Add as online config (SIP008) subscription?", "添加为在线配置（SIP008）订阅？"},
 	"ssmygo.addSubOK":         {"Add", "添加"},
+	"ssmygo.strategyExcluded": {"%s (plugin servers excluded)", "%s（不含插件服务器）"},
+	"ssmygo.noStrategyMembers": {"No server can join the strategy: servers with a plugin are excluded. Using the selected server.",
+		"没有可用于策略的服务器（使用插件的服务器不参与），使用当前选中的服务器。"},
+	"ssmygo.hotkeyOK":    {"Registered", "已注册"},
+	"ssmygo.hotkeyTaken": {"Could not register: the combination may be in use by another program.", "无法注册：该组合键可能已被其他程序占用。"},
+	"ssmygo.hotkeyParse": {"Not a valid hotkey.", "不是有效的快捷键。"},
 }
 
 var mnemonic = regexp.MustCompile(`\s?\(&\w\)|&`)

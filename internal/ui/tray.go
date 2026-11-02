@@ -25,6 +25,8 @@ type MenuActions struct {
 	ShowLogs                           func()
 	TogglePluginOutput                 func(bool)
 	ShareServers, ScanQR, OnlineConfig func()
+	SetStrategy                        func(string)
+	EditHotkeys                        func()
 }
 
 // BuildMenu builds the P0 tray menu (spec §4.6) for state s.
@@ -35,10 +37,22 @@ func BuildMenu(s controller.State, a MenuActions) *mygo.Menu {
 			Disabled: m != controller.Disabled && !s.HasServer(),
 			Click:    func(*mygo.MenuItem, *mygo.Window) { a.SetMode(m) }}
 	}
-	var servers []*mygo.MenuItem
+	// The original's order: the strategies, a separator, the servers.
+	strategy := func(name, label string) *mygo.MenuItem {
+		if s.StrategyExcluded > 0 {
+			label = fmt.Sprintf(T("ssmygo.strategyExcluded"), label)
+		}
+		return &mygo.MenuItem{ID: "strategy." + name, Label: label, Type: mygo.MenuItemRadio, Checked: s.Strategy == name,
+			Disabled: !s.HasServer(), Click: func(*mygo.MenuItem, *mygo.Window) { a.SetStrategy(name) }}
+	}
+	servers := []*mygo.MenuItem{
+		strategy(controller.StrategyBalancing, T("Load Balance")),
+		strategy(controller.StrategyHA, T("High Availability")),
+		mygo.Separator(),
+	}
 	for i, title := range s.Servers {
 		servers = append(servers, &mygo.MenuItem{ID: "server." + strconv.Itoa(i), Label: title, Type: mygo.MenuItemRadio,
-			Checked: i == s.Current, Click: func(*mygo.MenuItem, *mygo.Window) { a.Select(i) }})
+			Checked: i == s.Current && s.Strategy == controller.StrategyNone, Click: func(*mygo.MenuItem, *mygo.Window) { a.Select(i) }})
 	}
 	if len(servers) > 0 {
 		servers = append(servers, mygo.Separator())
@@ -63,6 +77,7 @@ func BuildMenu(s controller.State, a MenuActions) *mygo.Menu {
 			Click: func(it *mygo.MenuItem, _ *mygo.Window) { a.ToggleBoot(it.IsChecked()) }},
 		{ID: "lan", Label: T("Allow other Devices to connect"), Type: mygo.MenuItemCheckbox, Checked: s.ShareLAN,
 			Click: func(it *mygo.MenuItem, _ *mygo.Window) { a.ToggleLAN(it.IsChecked()) }},
+		{ID: "hotkeys", Label: T("Edit Hotkeys..."), Click: func(*mygo.MenuItem, *mygo.Window) { a.EditHotkeys() }},
 		{Label: T("Help"), Submenu: []*mygo.MenuItem{
 			{ID: "help.logs", Label: T("Show Logs..."), Click: func(*mygo.MenuItem, *mygo.Window) { a.ShowLogs() }},
 			{ID: "help.pluginOutput", Label: T("Show Plugin Output"), Type: mygo.MenuItemCheckbox, Checked: s.ShowPluginOutput,
@@ -78,7 +93,12 @@ func BuildMenu(s controller.State, a MenuActions) *mygo.Menu {
 func Tooltip(s controller.State, version string, rate traffic.Sample) string {
 	T := i18n.T
 	lines := []string{"ssmygo " + version}
-	if s.Current >= 0 && s.Current < len(s.Servers) {
+	switch {
+	case s.Strategy == controller.StrategyBalancing:
+		lines = append(lines, T("Load Balance"))
+	case s.Strategy == controller.StrategyHA:
+		lines = append(lines, T("High Availability"))
+	case s.Current >= 0 && s.Current < len(s.Servers):
 		lines = append(lines, s.Servers[s.Current])
 	}
 	switch s.Mode {
@@ -143,6 +163,8 @@ func RunTray(ctrl *controller.Controller, version string, logger *slog.Logger) e
 		// Off the main thread: a plugin may take up to 5 s to start (Review Focus 3).
 		SetMode:     func(m controller.Mode) { runAction(ctrl, logger, func() error { return ctrl.SetMode(m) }) },
 		Select:      func(i int) { runAction(ctrl, logger, func() error { return ctrl.SelectServer(i) }) },
+		SetStrategy: func(name string) { runAction(ctrl, logger, func() error { return ctrl.SetStrategy(name) }) },
+		EditHotkeys: func() { openHotkeysWindow(ctrl) },
 		Forward:     func() { OpenForwardWindow(ctrl) },
 		EditServers: func() { OpenConfigWindow(ctrl) },
 		ImportClipboard: func() {
@@ -201,6 +223,7 @@ func RunTray(ctrl *controller.Controller, version string, logger *slog.Logger) e
 		u.apply(s, rate, tray.Dark())
 	}
 	refresh(s)
+	startHotkeys(ctrl, logger)
 	last := s
 	// Traffic arrives every second off the main thread; the icon and the
 	// tooltip change only when what they show changes (Review Focus 4).
@@ -280,3 +303,6 @@ func (u *trayUpdater) apply(s controller.State, rate traffic.Sample, dark bool) 
 
 // openLogWindow opens the log viewer (set by logwin.go).
 var openLogWindow = func(*controller.Controller) {}
+
+// openHotkeysWindow opens the Hotkeys window (set by hotkeywin.go).
+var openHotkeysWindow = func(*controller.Controller) {}
