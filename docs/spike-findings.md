@@ -1,6 +1,6 @@
 # Spike 结论（2026-11-01）
 
-> spike 代码在 `spike/`（已加入 .gitignore，**用后即弃，不进入主线**）。
+> spike 代码用后即弃，已于 2026-11-03 删除；结论保留在本文。
 > 环境：Windows 11 Pro 26200，Go 1.27.3，MyGo v0.7.4，shadowsocks-go `65ba171`。
 
 ## 结论摘要
