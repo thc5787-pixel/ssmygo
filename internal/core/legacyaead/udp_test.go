@@ -20,32 +20,12 @@ import (
 	"github.com/thc5787/ssmygo/internal/core/socks5test"
 )
 
-// freePort returns a port number free for both TCP and UDP on 127.0.0.1.
-func freePort(t *testing.T) int {
-	t.Helper()
-	for range 20 {
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
-		}
-		p := ln.Addr().(*net.TCPAddr).Port
-		u, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: p})
-		ln.Close()
-		if err == nil {
-			u.Close()
-			return p
-		}
-	}
-	t.Fatal("no free port")
-	return 0
-}
-
 // udpRelay runs a shadowsocks-go Manager: a local socks5 server (TCP+UDP on
 // one port) and a client of method pointing at server. It returns the local
 // TCP address for UDP ASSOCIATE.
 func udpRelay(t *testing.T, method, password string, server netip.AddrPort) string {
 	t.Helper()
-	local := fmt.Sprintf("127.0.0.1:%d", freePort(t))
+	local := fmt.Sprintf("127.0.0.1:%d", socks5test.FreePort(t))
 	js := fmt.Sprintf(`{"servers":[{"name":"s","protocol":"socks5","mtu":1500,
 		"tcpListeners":[{"network":"tcp","address":%[1]q}],
 		"udpListeners":[{"network":"udp","address":%[1]q}]}],

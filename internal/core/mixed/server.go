@@ -14,7 +14,12 @@ import (
 )
 
 // Protocol is the server protocol name registered with shadowsocks-go.
+// Its SOCKS5 refuses UDP ASSOCIATE (reply 7), used with a forward proxy.
 const Protocol = "mixed"
+
+// ProtocolUDP also answers UDP ASSOCIATE. The reply names the TCP local
+// address, so a UDP socks5 server must listen on the same address.
+const ProtocolUDP = "mixed+udp"
 
 // DefaultFirstByteTimeout bounds how long a client may stay silent.
 var DefaultFirstByteTimeout = 10 * time.Second
@@ -25,9 +30,10 @@ type Server struct {
 	FirstByteTimeout time.Duration
 }
 
-// New returns a mixed server with TCP-only SOCKS5 and a plain HTTP proxy.
-func New() (*Server, error) {
-	sc := socks5.StreamServerConfig{EnableTCP: true}
+// New returns a mixed server with SOCKS5 (UDP ASSOCIATE only if enableUDP)
+// and a plain HTTP proxy.
+func New(enableUDP bool) (*Server, error) {
+	sc := socks5.StreamServerConfig{EnableTCP: true, EnableUDP: enableUDP}
 	s, err := sc.NewStreamServer()
 	if err != nil {
 		return nil, err

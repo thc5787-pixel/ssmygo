@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/netip"
 	"strconv"
+	"testing"
 	"time"
 )
 
@@ -147,4 +148,24 @@ func UDPEchoAt(ip string) (netip.AddrPort, func(), error) {
 		}
 	}()
 	return c.LocalAddr().(*net.UDPAddr).AddrPort(), func() { c.Close() }, nil
+}
+
+// FreePort returns a port number free for both TCP and UDP on 127.0.0.1.
+func FreePort(t testing.TB) int {
+	t.Helper()
+	for range 20 {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := ln.Addr().(*net.TCPAddr).Port
+		u, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: p})
+		ln.Close()
+		if err == nil {
+			u.Close()
+			return p
+		}
+	}
+	t.Fatal("no port free for both TCP and UDP")
+	return 0
 }
