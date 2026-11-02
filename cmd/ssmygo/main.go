@@ -1,5 +1,5 @@
 // Command ssmygo is a Windows tray Shadowsocks client (MyGo native UI,
-// shadowsocks-go core). See docs/superpowers/specs/2026-11-01-ssmygo-design.md.
+// shadowsocks-go core).
 package main
 
 import (
