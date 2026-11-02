@@ -78,6 +78,9 @@ func Tooltip(s controller.State, version string) string {
 	if s.ForwardIgnored {
 		lines = append(lines, T("ssmygo.forwardIgnored"))
 	}
+	if s.UDPDisabled {
+		lines = append(lines, T("ssmygo.udpOff"))
+	}
 	if s.LastError != "" {
 		msg := s.LastError
 		if s.Err != nil {

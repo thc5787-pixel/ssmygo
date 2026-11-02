@@ -107,3 +107,14 @@ func TestPluginAlert(t *testing.T) {
 		}
 	}
 }
+
+func TestTooltipUDPOff(t *testing.T) {
+	s := controller.State{Mode: controller.Global, Servers: []string{"x"}}
+	if strings.Contains(Tooltip(s, "0.1.0"), "UDP") {
+		t.Fatal("UDP line shown while UDP is on")
+	}
+	s.UDPDisabled = true
+	if tip := Tooltip(s, "0.1.0"); !strings.Contains(tip, "UDP: off (forward proxy in use)") {
+		t.Fatalf("%q", tip)
+	}
+}

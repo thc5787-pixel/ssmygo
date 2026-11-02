@@ -51,6 +51,7 @@ var extra = map[string][2]string{
 	"ssmygo.pluginStart":      {"Plugin %s did not start: %s", "插件 %s 启动失败：%s"},
 	"ssmygo.pluginCrashLoop":  {"Plugin keeps crashing and was stopped.", "插件反复崩溃，已停止。"},
 	"ssmygo.forwardIgnored":   {"Forward proxy: not used with this server's plugin", "前置代理：当前服务器使用插件，未启用"},
+	"ssmygo.udpOff":           {"UDP: off (forward proxy in use)", "UDP：已关闭（使用前置代理）"},
 }
 
 var mnemonic = regexp.MustCompile(`\s?\(&\w\)|&`)

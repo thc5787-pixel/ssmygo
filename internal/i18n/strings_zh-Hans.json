@@ -62,5 +62,6 @@
   "ssmygo.startFailed": "ssmygo 无法启动代理：%s",
   "ssmygo.trustDetail": "%s\n\n%s\nSHA-256 %s…\n\n请确认来源可信后再运行。",
   "ssmygo.trustRun": "运行",
-  "ssmygo.trustTitle": "运行插件程序？"
+  "ssmygo.trustTitle": "运行插件程序？",
+  "ssmygo.udpOff": "UDP：已关闭（使用前置代理）"
 }

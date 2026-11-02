@@ -685,3 +685,27 @@ func TestUDPPortBusyIsPortInUse(t *testing.T) {
 		t.Fatalf("err %T %v", err, err)
 	}
 }
+
+// A2-D2: with the forward proxy on, UDP is off and the state says so.
+func TestStateUDPDisabled(t *testing.T) {
+	e := newEnv(t)
+	e.writeConfig(nil)
+	c := e.start()
+	if c.State().UDPDisabled {
+		t.Fatal("UDPDisabled without a forward proxy")
+	}
+	fp := config.ForwardProxy{UseProxy: true, ProxyType: config.ProxySOCKS5, ProxyServer: "127.0.0.1", ProxyPort: 9, ProxyTimeout: 3}
+	if err := c.SetForwardProxy(fp); err != nil {
+		t.Fatal(err)
+	}
+	if !c.State().UDPDisabled {
+		t.Fatal("UDPDisabled false with the forward proxy on")
+	}
+	fp.UseProxy = false
+	if err := c.SetForwardProxy(fp); err != nil {
+		t.Fatal(err)
+	}
+	if c.State().UDPDisabled {
+		t.Fatal("UDPDisabled stuck after the forward proxy was turned off")
+	}
+}

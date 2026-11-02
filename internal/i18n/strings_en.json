@@ -62,5 +62,6 @@
   "ssmygo.startFailed": "ssmygo could not start the proxy: %s",
   "ssmygo.trustDetail": "%s\n\n%s\nSHA-256 %s…\n\nRun it only if you trust where it came from.",
   "ssmygo.trustRun": "Run",
-  "ssmygo.trustTitle": "Run plugin program?"
+  "ssmygo.trustTitle": "Run plugin program?",
+  "ssmygo.udpOff": "UDP: off (forward proxy in use)"
 }

@@ -530,6 +530,7 @@ func (c *Controller) stateLocked() State {
 		FirstRun: c.cfg.FirstRun,
 	}
 	s.PluginFailure = c.pluginFailure
+	s.UDPDisabled = c.cfg.Proxy.UseProxy // same rule as core.Build
 	if srv, ok := c.cfg.Current(); ok && srv.Plugin != "" && c.cfg.Proxy.UseProxy {
 		s.ForwardIgnored = true // A1-D3
 	}
