@@ -73,6 +73,10 @@ func TestUDPNATRelayCountsPayload(t *testing.T) {
 	if _, err := c.Read(b); err != nil {
 		t.Fatal(err)
 	}
+	// The reply is counted just after it is written: allow it to land.
+	for deadline := time.Now().Add(time.Second); m.down.Load() == 0 && time.Now().Before(deadline); {
+		time.Sleep(5 * time.Millisecond)
+	}
 	if m.up.Load() != 100 || m.down.Load() != 100 {
 		t.Fatalf("meter up %d down %d, want 100 100", m.up.Load(), m.down.Load())
 	}

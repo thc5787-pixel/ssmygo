@@ -545,6 +545,12 @@ func TestRunnerCountsUDPPayload(t *testing.T) {
 	if err := udpExchange(associate(t, port), target, strings.Repeat("x", 1200), 3*time.Second); err != nil {
 		t.Fatal(err)
 	}
+	// The reply is counted just after it is written: allow it to land.
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		if _, down := m.Totals(); down >= 1200 {
+			break
+		}
+	}
 	if up, down := m.Totals(); up != 1200 || down != 1200 {
 		t.Fatalf("meter %d/%d, want 1200/1200", up, down)
 	}
