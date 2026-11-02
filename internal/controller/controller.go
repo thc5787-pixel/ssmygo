@@ -170,6 +170,9 @@ func (c *Controller) Start() error {
 	// Return the cold rules build's garbage to the OS right away (tray-only
 	// working-set target is 40 MB); cheap, and a no-op on warm starts.
 	debug.FreeOSMemory()
+	if c.cfg.Strategy.Known() && !strategyActive(c.cfg) {
+		c.addNotice(ErrNoStrategyMembers)
+	}
 
 	started, port, coreErr := c.preparePlugin(c.cfg)
 	c.plug = started
@@ -397,6 +400,9 @@ func (c *Controller) save() error {
 
 // unusable says why cfg's current server cannot carry traffic, or nil.
 func unusable(cfg *config.Config) error {
+	if strategyActive(cfg) {
+		return nil
+	}
 	s, ok := cfg.Current()
 	switch {
 	case !ok:
@@ -412,6 +418,10 @@ func unusable(cfg *config.Config) error {
 func (c *Controller) SetMode(m Mode) error {
 	c.mu.Lock()
 	defer c.unlock()
+	return c.setModeLocked(m)
+}
+
+func (c *Controller) setModeLocked(m Mode) error {
 	next := c.cfg.Clone()
 	next.Enabled = m != Disabled
 	if m != Disabled {
@@ -423,16 +433,22 @@ func (c *Controller) SetMode(m Mode) error {
 	return c.commit(next)
 }
 
-// SelectServer makes server i current. While the system proxy is on, an
-// unusable server is refused: the core would silently send traffic direct.
+// SelectServer makes server i current and clears the strategy, as the
+// original does. While the system proxy is on, an unusable server is
+// refused: the core would silently send traffic direct.
 func (c *Controller) SelectServer(i int) error {
 	c.mu.Lock()
 	defer c.unlock()
+	return c.selectServerLocked(i)
+}
+
+func (c *Controller) selectServerLocked(i int) error {
 	if i < 0 || i >= len(c.cfg.Configs) {
 		return c.fail(fmt.Errorf("no server %d", i))
 	}
 	next := c.cfg.Clone()
 	next.Index = i
+	next.Strategy = ""
 	if next.Enabled {
 		if err := unusable(next); err != nil {
 			return c.fail(err)
@@ -477,6 +493,7 @@ func (c *Controller) SaveServers(servers []config.Server, index, port int, porta
 	if index < 0 || index >= len(servers) {
 		next.Index = 0
 	}
+	next.Strategy = "" // the original clears it on OK too
 	if next.Enabled {
 		if err := unusable(next); err != nil {
 			return c.fail(err)
@@ -596,7 +613,9 @@ func (c *Controller) stateLocked() State {
 	s.PluginFailure = c.pluginFailure
 	s.ShowPluginOutput = c.cfg.ShowPluginOutput
 	s.UDPDisabled = c.cfg.Proxy.UseProxy // same rule as core.Build
-	if srv, ok := c.cfg.Current(); ok && srv.Plugin != "" && c.cfg.Proxy.UseProxy {
+	s.Strategy = strategyName(c.cfg)
+	_, s.StrategyExcluded = core.StrategyMembers(c.cfg)
+	if srv, ok := c.cfg.Current(); ok && srv.Plugin != "" && c.cfg.Proxy.UseProxy && s.Strategy == StrategyNone {
 		s.ForwardIgnored = true // A1-D3
 	}
 	if c.lastErr != nil {

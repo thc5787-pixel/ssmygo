@@ -33,12 +33,15 @@ var keys = []string{
 	"No QRCode found. Try to zoom in or move it to the center of the screen.", "Invalid QR Code content: {0}",
 	"Update Local PAC from Geosite", "Edit User Rule for Geosite...", "PAC updated",
 	"No updates found. Please report to Geosite if you have problems with it.",
+	"Load Balance", "High Availability", "Edit Hotkeys...", "Register hotkey failed",
 }
 
 // resxNames are WPF strings (Localization/Strings*.resx), stored as "resx.<name>".
 var resxNames = []string{"ForwardProxy", "Type", "NoProxy", "Details", "Address", "Port", "Timeout", "CredentialsOptional", "Username",
 	"updateButton_Content", "updateAllButton_Content", "copyLinkButton_Content", "removeButton_Content", "addButton_Content",
-	"Copy", "ServerSharing", "OnlineConfigDelivery"}
+	"Copy", "ServerSharing", "OnlineConfigDelivery",
+	"Hotkeys", "ToggleSystemProxy", "ToggleProxyMode", "AllowClientsFromLAN", "OpenLogsWindow", "SwitchToPreviousServer",
+	"SwitchToNextServer", "RegisterHotkeysAtStartup", "registerAllButton_Content", "saveButton_Content", "cancelButton_Content"}
 
 // extra are strings the original lacks: key → {en, zh-Hans}.
 var extra = map[string][2]string{
@@ -82,6 +85,12 @@ var extra = map[string][2]string{
 	"ssmygo.userRuleRead":     {"Cannot read user-rule.txt; the previous rules are kept: %v", "无法读取 user-rule.txt，保留之前的规则：%v"},
 	"ssmygo.userRuleBuild":    {"Cannot apply user-rule.txt; the previous rules are kept: %v", "无法应用 user-rule.txt，保留之前的规则：%v"},
 	"ssmygo.cannotOpen":       {"Cannot open %s: %v", "无法打开 %s：%v"},
+	"ssmygo.strategyExcluded": {"%s (plugin servers excluded)", "%s（不含插件服务器）"},
+	"ssmygo.noStrategyMembers": {"No server can join the strategy: servers with a plugin are excluded. Using the selected server.",
+		"没有可用于策略的服务器（使用插件的服务器不参与），使用当前选中的服务器。"},
+	"ssmygo.hotkeyOK":    {"Registered", "已注册"},
+	"ssmygo.hotkeyTaken": {"Could not register: the combination may be in use by another program.", "无法注册：该组合键可能已被其他程序占用。"},
+	"ssmygo.hotkeyParse": {"Not a valid hotkey.", "不是有效的快捷键。"},
 }
 
 var mnemonic = regexp.MustCompile(`\s?\(&\w\)|&`)
