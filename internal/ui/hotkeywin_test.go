@@ -170,3 +170,14 @@ func TestHotkeySnapshots(t *testing.T) {
 		f.Close()
 	}
 }
+
+// Final review: a value the original accepts but ssmygo cannot record
+// (Ctrl+Snapshot) survives a Save that only changed another row.
+func TestHotkeyWindowKeepsUntouchedUnparsable(t *testing.T) {
+	h := newHk(t, config.HotkeyConfig{SwitchSystemProxy: "Ctrl+Snapshot", ShowLogs: "Ctrl+Shift+L"}, false)
+	h.w.set(3, "Ctrl+Shift+K") // the user changed Show Logs only
+	h.w.apply()
+	if len(h.saved) != 1 || h.saved[0].SwitchSystemProxy != "Ctrl+Snapshot" || h.saved[0].ShowLogs != "Ctrl+Shift+K" {
+		t.Fatalf("saved %+v", h.saved)
+	}
+}

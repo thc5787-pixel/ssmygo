@@ -2,6 +2,7 @@ package core
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/thc5787/ssmygo/internal/config"
@@ -111,5 +112,23 @@ func TestBuildUnknownStrategyIsNone(t *testing.T) {
 	}
 	if len(sc.ClientGroups) != 0 || clientByName(sc, "proxy").Name == "" {
 		t.Fatalf("config %+v", sc)
+	}
+}
+
+// Final review: a member whose address cannot be dialed (passes Validate,
+// fails as a client address) is left out instead of sending all traffic
+// direct.
+func TestStrategyMemberWithBadAddressExcluded(t *testing.T) {
+	cfg := strategyConfig(config.StrategyBalancing)
+	bad := cfg.Configs[0]
+	bad.Server = strings.Repeat("a", 300) + ".example"
+	cfg.Configs = append(cfg.Configs, bad)
+	members, excluded := StrategyMembers(cfg)
+	if slices.Contains(members, len(cfg.Configs)-1) || excluded < 1 {
+		t.Fatalf("members %v excluded %d", members, excluded)
+	}
+	sc, err := Build(cfg, nil, 0)
+	if err != nil || len(sc.ClientGroups) != 1 {
+		t.Fatalf("err %v groups %d", err, len(sc.ClientGroups))
 	}
 }

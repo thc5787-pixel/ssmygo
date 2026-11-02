@@ -232,3 +232,18 @@ func TestSaveHotkeys(t *testing.T) {
 		t.Fatalf("disk %+v", d)
 	}
 }
+
+// Final review #2: under a strategy the core carries traffic even when the
+// remembered server uses a (stopped) plugin, so subscriptions go through it.
+func TestFetchPortUnderStrategy(t *testing.T) {
+	e, _ := pluginEnv(t)
+	e.writeConfig(func(c *config.Config) {
+		c.Configs = append([]config.Server{e.pluginServer("")}, c.Configs...) // remembered: plugin server
+		c.Index = 0
+		c.Strategy = config.StrategyBalancing
+	})
+	c := e.start()
+	if p := c.fetchPort(); p != c.State().Port {
+		t.Fatalf("fetch port %d, want the local port %d", p, c.State().Port)
+	}
+}

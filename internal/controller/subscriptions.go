@@ -158,6 +158,9 @@ func (c *Controller) UpdateAllSubscriptions(ctx context.Context) (failed []strin
 func (c *Controller) fetchPort() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if strategyActive(c.cfg) {
+		return c.cfg.LocalPort // the group carries traffic; no plugin is involved
+	}
 	srv, ok := c.cfg.Current()
 	if !ok || unusable(c.cfg) != nil || c.pluginFailure != nil || (srv.Plugin != "" && c.plug == nil) {
 		return 0

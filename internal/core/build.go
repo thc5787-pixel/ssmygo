@@ -167,9 +167,16 @@ func route(sc *service.Config, cfg *config.Config, rs *rules.Result, pluginDown 
 // many servers it leaves out.
 func StrategyMembers(cfg *config.Config) (members []int, excluded int) {
 	for i, s := range cfg.Configs {
-		if s.Plugin == "" && len(s.Validate()) == 0 {
-			members = append(members, i)
+		if s.Plugin != "" || len(s.Validate()) > 0 {
+			continue
 		}
+		// An address that passes Validate but cannot become a client (a
+		// host over 255 bytes) would fail the whole build and send all
+		// traffic direct: leave that server out instead.
+		if _, err := proxyClient(s, 0, false); err != nil {
+			continue
+		}
+		members = append(members, i)
 	}
 	return members, len(cfg.Configs) - len(members)
 }

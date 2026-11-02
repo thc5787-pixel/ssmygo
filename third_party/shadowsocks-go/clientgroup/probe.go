@@ -364,6 +364,7 @@ func (s *atomicClientSelector[C]) probeAvailability(
 	done := ctx.Done()
 	ticker := time.NewTicker(pc.interval) // Should we use a timer instead and add some random jitter?
 	defer ticker.Stop()
+	tick := immediateTicks(done, ticker.C) // ssmygo patch A5
 	var (
 		wg          sync.WaitGroup
 		probeResult = make([]uint, len(pc.clients))
@@ -374,7 +375,7 @@ func (s *atomicClientSelector[C]) probeAvailability(
 		select {
 		case <-done:
 			return
-		case <-ticker.C:
+		case <-tick:
 			if logger.Enabled(slog.LevelDebug) {
 				logger.Debug("Started availability probe",
 					tslog.Uint("probeCount", probeCount),
@@ -470,6 +471,7 @@ func (s *atomicClientSelector[C]) probeLatency(
 	done := ctx.Done()
 	ticker := time.NewTicker(pc.interval) // Should we use a timer instead and add some random jitter?
 	defer ticker.Stop()
+	tick := immediateTicks(done, ticker.C) // ssmygo patch A5
 	var (
 		wg          sync.WaitGroup
 		probeResult = make([][latencyProbeResultSize]time.Duration, len(pc.clients))
@@ -480,7 +482,7 @@ func (s *atomicClientSelector[C]) probeLatency(
 		select {
 		case <-done:
 			return
-		case <-ticker.C:
+		case <-tick:
 			if logger.Enabled(slog.LevelDebug) {
 				logger.Debug("Started latency probe",
 					tslog.Uint("probeCount", probeCount),
@@ -558,6 +560,7 @@ func (s *atomicClientSelector[C]) probeMinMaxLatency(
 	done := ctx.Done()
 	ticker := time.NewTicker(pc.interval) // Should we use a timer instead and add some random jitter?
 	defer ticker.Stop()
+	tick := immediateTicks(done, ticker.C) // ssmygo patch A5
 	var (
 		wg          sync.WaitGroup
 		probeResult = make([][latencyProbeResultSize]time.Duration, len(pc.clients))
@@ -568,7 +571,7 @@ func (s *atomicClientSelector[C]) probeMinMaxLatency(
 		select {
 		case <-done:
 			return
-		case <-ticker.C:
+		case <-tick:
 			if logger.Enabled(slog.LevelDebug) {
 				logger.Debug("Started latency probe",
 					tslog.Uint("probeCount", probeCount),
@@ -675,4 +678,28 @@ func (g *atomicUDPClientGroup) Info() zerocopy.UDPClientInfo {
 // NewSession implements [zerocopy.UDPClient.NewSession].
 func (g *atomicUDPClientGroup) NewSession(ctx context.Context) (zerocopy.UDPClientSessionInfo, zerocopy.UDPClientSession, error) {
 	return g.selector.Select().NewSession(ctx)
+}
+
+// immediateTicks delivers one tick at once, then c's ticks, until done
+// (ssmygo patch A5). Every core rebuild restarts probing; without the
+// first tick a group would keep its first client, perhaps a dead one, for
+// a whole interval.
+func immediateTicks(done <-chan struct{}, c <-chan time.Time) <-chan time.Time {
+	out := make(chan time.Time)
+	go func() {
+		t := time.Now()
+		for {
+			select {
+			case out <- t:
+			case <-done:
+				return
+			}
+			select {
+			case t = <-c:
+			case <-done:
+				return
+			}
+		}
+	}()
+	return out
 }

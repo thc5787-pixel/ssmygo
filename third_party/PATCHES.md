@@ -115,3 +115,20 @@ Diff vs previous state:
      2 files changed, 14 insertions(+), 1 deletion(-)
     ?? third_party/shadowsocks-go/service/meter.go
     ?? third_party/shadowsocks-go/service/meter_test.go
+
+## Patch A5 — probe client groups at once
+
+Probing groups (availability, latency, min-max-latency) waited one whole
+interval (30 s by default) before their first probe, keeping the first
+client — possibly a dead server — meanwhile. ssmygo rebuilds the core on
+every settings change, so High Availability would fall back to a dead
+server for 30 s after each change.
+
+- `clientgroup/probe.go`: `immediateTicks` delivers one tick at once, then
+  the ticker's; the three probe loops use it.
+
+Tests: `internal/core` `TestRunnerHAProbesAtOnce`.
+
+Diff vs previous state:
+     third_party/shadowsocks-go/clientgroup/probe.go | 33 ++++++++++++++++++++++---
+     1 file changed, 30 insertions(+), 3 deletions(-)

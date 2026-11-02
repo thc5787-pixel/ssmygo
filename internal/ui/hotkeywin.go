@@ -27,6 +27,10 @@ var hotkeyLabels = []string{"resx.ToggleSystemProxy", "resx.ToggleProxyMode", "r
 // HotkeyWindow is the Hotkeys window (original HotkeysView, 320×260).
 type HotkeyWindow struct {
 	vals    [6]string // original format, as "Ctrl+Shift+Q"
+	// kept: a configured value ssmygo cannot record or register (e.g.
+	// "Ctrl+Snapshot"), shown empty but written back unless the user
+	// changes that row.
+	kept [6]string
 	startup bool
 	status  [6]hkStatus
 	tips    [6]string
@@ -46,7 +50,9 @@ func NewHotkeyWindow(initial config.HotkeyConfig, active bool, save func(config.
 	vals := hotkeyValues(initial)
 	for i, n := range HotkeyNames {
 		if _, ok := hotkey.ToAccelerator(vals[n]); ok {
-			w.vals[i] = vals[n] // unparsable values count as empty
+			w.vals[i] = vals[n]
+		} else {
+			w.kept[i] = vals[n] // unparsable values count as empty
 		}
 	}
 	return w
@@ -61,9 +67,17 @@ func (w *HotkeyWindow) close() {
 	}
 }
 
-func (w *HotkeyWindow) config() config.HotkeyConfig {
-	return config.HotkeyConfig{SwitchSystemProxy: w.vals[0], SwitchSystemProxyMode: w.vals[1], SwitchAllowLan: w.vals[2],
-		ShowLogs: w.vals[3], ServerMoveUp: w.vals[4], ServerMoveDown: w.vals[5], RegHotkeysAtStartup: w.startup}
+// config is what the window holds; withKept adds back configured values it
+// cannot show (for saving — they cannot be registered).
+func (w *HotkeyWindow) config(withKept bool) config.HotkeyConfig {
+	v := w.vals
+	for i := range v {
+		if withKept && v[i] == "" {
+			v[i] = w.kept[i]
+		}
+	}
+	return config.HotkeyConfig{SwitchSystemProxy: v[0], SwitchSystemProxyMode: v[1], SwitchAllowLan: v[2],
+		ShowLogs: v[3], ServerMoveUp: v[4], ServerMoveDown: v[5], RegHotkeysAtStartup: w.startup}
 }
 
 // registerShown registers cfg and shows each row's result; it reports
@@ -156,6 +170,7 @@ func (w *HotkeyWindow) record(i int, ev mui.InputEvent) bool {
 }
 
 func (w *HotkeyWindow) set(i int, v string) {
+	w.kept[i] = "" // the user decided this row
 	if w.vals[i] != v {
 		w.vals[i], w.status[i], w.tips[i] = v, hkNone, ""
 	}
@@ -200,7 +215,7 @@ func (w *HotkeyWindow) View(c *mui.Context) {
 		mui.Box(c).Grow(1)
 		mui.Row(c).Gap(t.Space(2)).Children(func() {
 			if mui.Button(c, wpf("resx.registerAllButton_Content")).Clicked() {
-				w.registerShown(w.config())
+				w.registerShown(w.config(false))
 			}
 			mui.Box(c).Grow(1)
 			if mui.PrimaryButton(c, wpf("resx.saveButton_Content")).MinWidth(t.Rem(4)).Clicked() {
@@ -216,13 +231,12 @@ func (w *HotkeyWindow) View(c *mui.Context) {
 // apply saves; with startup registration on, or hotkeys registered already,
 // it registers the new settings too, and stays open if any failed.
 func (w *HotkeyWindow) apply() {
-	cfg := w.config()
-	if err := w.save(cfg); err != nil {
+	if err := w.save(w.config(true)); err != nil {
 		w.saveErr = Message(err)
 		return
 	}
 	w.saveErr = ""
-	if (w.startup || w.active) && !w.registerShown(cfg) {
+	if (w.startup || w.active) && !w.registerShown(w.config(false)) {
 		return
 	}
 	w.close()

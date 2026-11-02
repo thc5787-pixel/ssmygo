@@ -108,3 +108,41 @@ func TestRunnerHAPicksTheWorkingServer(t *testing.T) {
 		t.Fatal("the working server saw no connection")
 	}
 }
+
+// Final review #1: every Apply restarts probing; the first probe must not
+// wait a whole interval, or HA sticks to a dead server after each change.
+func TestRunnerHAProbesAtOnce(t *testing.T) {
+	var n atomic.Int32
+	dead := freePort(t)
+	cfg := config.Default()
+	cfg.LocalPort = freePort(t)
+	cfg.Global = true
+	cfg.Strategy = config.StrategyHA
+	cfg.Configs = []config.Server{
+		{Server: "127.0.0.1", ServerPort: dead, Method: "aes-256-gcm", Password: "pw"}, // current, down
+		countedServer(t, &n),
+	}
+	sc, err := Build(cfg, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := &sc.ClientGroups[0]
+	g.TCP.Probe.Address = conn.AddrFromIPPort(generate204(t))
+	g.TCP.Probe.Interval = jsoncfg.Duration(time.Hour) // only the first probe can help
+	g.TCP.Probe.Timeout = jsoncfg.Duration(time.Second)
+	g.UDP.Probe.Address = conn.AddrFromIPPort(netip.MustParseAddrPort("127.0.0.1:9"))
+	g.UDP.Probe.Interval = jsoncfg.Duration(time.Hour)
+	r := NewRunner(quietLogger(), nil)
+	defer r.Stop()
+	if err := r.Apply(sc); err != nil {
+		t.Fatal(err)
+	}
+	target := echoServer(t)
+	deadline := time.Now().Add(5 * time.Second)
+	for socksEcho(cfg.LocalPort, target, "ha-now") != nil {
+		if time.Now().After(deadline) {
+			t.Fatal("still on the dead server: the first probe waited for the interval")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
