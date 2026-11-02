@@ -6,10 +6,10 @@ import (
 )
 
 func init() {
-	service.RegisterServerProtocol(Protocol, func(*service.ServerConfig) (netio.StreamServer, error) {
-		return New(false)
+	service.RegisterServerProtocol(Protocol, func(sc *service.ServerConfig) (netio.StreamServer, error) {
+		return New(false, sc.TrafficMeter)
 	})
-	service.RegisterServerProtocol(ProtocolUDP, func(*service.ServerConfig) (netio.StreamServer, error) {
-		return New(true)
+	service.RegisterServerProtocol(ProtocolUDP, func(sc *service.ServerConfig) (netio.StreamServer, error) {
+		return New(true, sc.TrafficMeter)
 	})
 }

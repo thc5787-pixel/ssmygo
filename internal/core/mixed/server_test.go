@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -32,7 +33,9 @@ func freeAddr(t *testing.T) string {
 }
 
 // startMixed runs a Manager with a "mixed" server and a direct client.
-func startMixed(t *testing.T) string {
+func startMixed(t *testing.T) string { return startMixedMeter(t, nil) }
+
+func startMixedMeter(t *testing.T, meter service.TrafficMeter) string {
 	t.Helper()
 	addr := freeAddr(t)
 	js := fmt.Sprintf(`{"servers":[{"name":"local","protocol":"mixed","tcpListeners":[{"network":"tcp","address":%q}]}],
@@ -41,6 +44,7 @@ func startMixed(t *testing.T) string {
 	if err := json.Unmarshal([]byte(js), &cfg); err != nil {
 		t.Fatal(err)
 	}
+	cfg.Servers[0].TrafficMeter = meter
 	logger, _ := tslog.Config{Level: 8}.NewLogger(io.Discard)
 	m, err := cfg.NewManager(logger)
 	if err != nil {
@@ -257,5 +261,122 @@ func TestAssociateAllowed(t *testing.T) {
 func TestAssociateRefused(t *testing.T) {
 	if rep, _ := associateReply(t, startMixed(t)); rep != 7 {
 		t.Fatalf("reply %d, want 7 (command not supported)", rep)
+	}
+}
+
+type testMeter struct{ up, down atomic.Uint64 }
+
+func (m *testMeter) Add(up, down uint64) { m.up.Add(up); m.down.Add(down) }
+
+// waitMeter waits briefly: a reply is counted just after it is written.
+func waitMeter(m *testMeter, up, down uint64) (uint64, uint64) {
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		if m.up.Load() >= up && m.down.Load() >= down {
+			break
+		}
+	}
+	return m.up.Load(), m.down.Load()
+}
+
+// socksConnect opens a SOCKS5 CONNECT to target through proxy.
+func socksConnect(t *testing.T, proxy string, target netip.AddrPort) *net.TCPConn {
+	t.Helper()
+	c, err := net.Dial("tcp", proxy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	c.SetDeadline(time.Now().Add(5 * time.Second))
+	c.Write([]byte{5, 1, 0})
+	buf := make([]byte, 10)
+	io.ReadFull(c, buf[:2])
+	req := append([]byte{5, 1, 0, 1}, target.Addr().AsSlice()...)
+	req = binary.BigEndian.AppendUint16(req, target.Port())
+	c.Write(req)
+	if _, err := io.ReadFull(c, buf); err != nil || buf[1] != 0 {
+		t.Fatalf("reply %v %v", buf, err)
+	}
+	return c.(*net.TCPConn)
+}
+
+// Review Focus 3: SOCKS5 payload counted once, handshake not counted.
+func TestCountsSocks5(t *testing.T) {
+	m := &testMeter{}
+	c := socksConnect(t, startMixedMeter(t, m), echoAfterEOF(t))
+	c.Write(make([]byte, 1000))
+	c.CloseWrite()
+	if got, _ := io.ReadAll(c); len(got) != 1000 {
+		t.Fatalf("echo %d", len(got))
+	}
+	if up, down := waitMeter(m, 1000, 1000); up != 1000 || down != 1000 {
+		t.Fatalf("meter %d/%d, want 1000/1000", up, down)
+	}
+}
+
+func TestCountsHalfClose(t *testing.T) {
+	m := &testMeter{}
+	c := socksConnect(t, startMixedMeter(t, m), echoAfterEOF(t))
+	c.Write(make([]byte, 500))
+	c.CloseWrite() // the echo only answers after this
+	io.ReadAll(c)
+	if up, down := waitMeter(m, 500, 500); up != 500 || down != 500 {
+		t.Fatalf("meter %d/%d, want 500/500", up, down)
+	}
+}
+
+func TestCountsHTTPConnect(t *testing.T) {
+	m := &testMeter{}
+	target := echoAfterEOF(t)
+	c, err := net.Dial("tcp", startMixedMeter(t, m))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.SetDeadline(time.Now().Add(5 * time.Second))
+	fmt.Fprintf(c, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", target, target)
+	br := bufio.NewReader(c)
+	resp, err := http.ReadResponse(br, nil)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("connect %v %v", resp, err)
+	}
+	c.Write(make([]byte, 1000))
+	c.(*net.TCPConn).CloseWrite()
+	if got, _ := io.ReadAll(br); len(got) != 1000 {
+		t.Fatalf("echo %d", len(got))
+	}
+	if up, down := waitMeter(m, 1000, 1000); up != 1000 || down != 1000 {
+		t.Fatalf("meter %d/%d, want 1000/1000", up, down)
+	}
+}
+
+func TestCountsHTTPGet(t *testing.T) {
+	m := &testMeter{}
+	body := strings.Repeat("b", 10240)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, body) }))
+	defer srv.Close()
+	pu, _ := url.Parse("http://" + startMixedMeter(t, m))
+	cl := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(pu)}, Timeout: 5 * time.Second}
+	resp, err := cl.Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	cl.CloseIdleConnections()
+	if len(got) != 10240 {
+		t.Fatalf("body %d", len(got))
+	}
+	up, down := waitMeter(m, 1, 10240)
+	if up == 0 || down < 10240 || down > 10240+1024 {
+		t.Fatalf("meter %d/%d, want up > 0, down in [10240, 11264]", up, down)
+	}
+}
+
+func TestNilMeter(t *testing.T) {
+	c := socksConnect(t, startMixed(t), echoAfterEOF(t))
+	c.Write([]byte("x"))
+	c.CloseWrite()
+	if got, _ := io.ReadAll(c); string(got) != "x" {
+		t.Fatalf("got %q", got)
 	}
 }

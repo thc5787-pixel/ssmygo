@@ -566,3 +566,31 @@ func TestRunnerNilMeter(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// The meter outlives each Manager: totals continue across Apply.
+func TestRunnerTotalsSurviveReapply(t *testing.T) {
+	target := echoServer(t)
+	var m traffic.Meter
+	r := NewRunner(quietLogger(), &m)
+	defer r.Stop()
+	cfg := config.Default()
+	cfg.LocalPort = freePort(t)
+	msg := strings.Repeat("y", 500)
+	for range 2 {
+		sc, _ := Build(cfg, nil, 0) // no server: direct
+		if err := r.Apply(sc); err != nil {
+			t.Fatal(err)
+		}
+		if err := socksEcho(cfg.LocalPort, target, msg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		if _, down := m.Totals(); down >= 1000 {
+			break
+		}
+	}
+	if up, down := m.Totals(); up != 1000 || down != 1000 {
+		t.Fatalf("totals %d/%d, want 1000/1000", up, down)
+	}
+}

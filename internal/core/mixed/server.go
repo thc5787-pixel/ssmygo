@@ -9,6 +9,7 @@ import (
 
 	"github.com/database64128/shadowsocks-go/httpproxy"
 	"github.com/database64128/shadowsocks-go/netio"
+	"github.com/database64128/shadowsocks-go/service"
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/tslog"
 )
@@ -27,12 +28,14 @@ var DefaultFirstByteTimeout = 10 * time.Second
 // Server implements netio.StreamServer.
 type Server struct {
 	socks, http      netio.StreamServer
+	meter            service.TrafficMeter // nil = no counting
 	FirstByteTimeout time.Duration
 }
 
 // New returns a mixed server with SOCKS5 (UDP ASSOCIATE only if enableUDP)
-// and a plain HTTP proxy.
-func New(enableUDP bool) (*Server, error) {
+// and a plain HTTP proxy. meter, if not nil, counts the payload of every
+// request.
+func New(enableUDP bool, meter service.TrafficMeter) (*Server, error) {
 	sc := socks5.StreamServerConfig{EnableTCP: true, EnableUDP: enableUDP}
 	s, err := sc.NewStreamServer()
 	if err != nil {
@@ -43,7 +46,7 @@ func New(enableUDP bool) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Server{socks: s, http: h, FirstByteTimeout: DefaultFirstByteTimeout}, nil
+	return &Server{socks: s, http: h, meter: meter, FirstByteTimeout: DefaultFirstByteTimeout}, nil
 }
 
 // StreamServerInfo implements netio.StreamServer. Initial payload is never
@@ -67,10 +70,15 @@ func (s *Server) HandleStream(c netio.Conn, l *tslog.Logger) (netio.ConnRequest,
 		return netio.ConnRequest{}, err
 	}
 	pc := &prefixConn{Conn: c, prefix: b[0], has: true}
+	inner := s.http
 	if b[0] == 5 {
-		return s.socks.HandleStream(pc, l)
+		inner = s.socks
 	}
-	return s.http.HandleStream(pc, l)
+	req, err := inner.HandleStream(pc, l)
+	if err == nil && s.meter != nil {
+		req.PendingConn = &countPending{PendingConn: req.PendingConn, meter: s.meter, payload: len(req.Payload)}
+	}
+	return req, err
 }
 
 // prefixConn returns one already-read byte before reading from Conn.
