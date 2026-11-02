@@ -25,6 +25,7 @@ type MenuActions struct {
 	ShowLogs                           func()
 	TogglePluginOutput                 func(bool)
 	ShareServers, ScanQR, OnlineConfig func()
+	UpdateGeosite, EditUserRule        func() // the PAC submenu (P1-D)
 }
 
 // BuildMenu builds the P0 tray menu (spec §4.6) for state s.
@@ -56,6 +57,11 @@ func BuildMenu(s controller.State, a MenuActions) *mygo.Menu {
 			mode("mode.global", controller.Global, T("Global")),
 		}},
 		{Label: T("Servers"), Submenu: servers},
+		// "PAC " in the original, which has no translation for it.
+		{Label: "PAC", Submenu: []*mygo.MenuItem{
+			{ID: "pac.update", Label: T("Update Local PAC from Geosite"), Click: func(*mygo.MenuItem, *mygo.Window) { a.UpdateGeosite() }},
+			{ID: "pac.userRule", Label: T("Edit User Rule for Geosite..."), Click: func(*mygo.MenuItem, *mygo.Window) { a.EditUserRule() }},
+		}},
 		{ID: "forward", Label: T("Forward Proxy..."), Click: func(*mygo.MenuItem, *mygo.Window) { a.Forward() }},
 		{ID: "online", Label: T("Online Config..."), Click: func(*mygo.MenuItem, *mygo.Window) { a.OnlineConfig() }},
 		mygo.Separator(),
@@ -185,6 +191,12 @@ func RunTray(ctrl *controller.Controller, version string, logger *slog.Logger) e
 		TogglePluginOutput: func(on bool) {
 			runAction(ctrl, logger, func() error { return ctrl.SetShowPluginOutput(on) })
 		},
+		UpdateGeosite: func() {
+			updateGeositeAction(ctrl.UpdateGeosite, func(m string) { Notify(logger, m) })
+		},
+		EditUserRule: func() {
+			editUserRuleAction(ctrl.EnsureUserRuleFile, mygo.Shell.OpenPath, func(m string) { Notify(logger, m) })
+		},
 	}
 	u := &trayUpdater{
 		setIcon: func(p []byte) { tray.SetIcon(p, false) },
@@ -215,7 +227,7 @@ func RunTray(ctrl *controller.Controller, version string, logger *slog.Logger) e
 			refresh(s)
 			msg, retrust := pluginAlert(last, s)
 			last = s
-			if n := ctrl.TakeNotice(); n != nil {
+			for n := ctrl.TakeNotice(); n != nil; n = ctrl.TakeNotice() {
 				Notify(logger, Message(n))
 			}
 			mergeIntoOpenConfigWindow(ctrl.Config())

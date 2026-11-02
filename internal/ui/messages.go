@@ -4,10 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/thc5787/ssmygo/internal/controller"
 	"github.com/thc5787/ssmygo/internal/core/plugin"
+	"github.com/thc5787/ssmygo/internal/geosite"
 	"github.com/thc5787/ssmygo/internal/i18n"
 )
 
@@ -25,6 +27,11 @@ func Message(err error) string {
 		start     *plugin.StartError
 		replaced  *controller.SelectionReplacedError
 		subsFail  *controller.SubscriptionsFailedError
+		geoFail   *controller.GeositeUpdateError
+		geoGroups *geosite.MissingGroupsError
+		skipped   *controller.UserRulesSkippedError
+		userRead  *controller.UserRulesReadError
+		geoDone   *controller.GeositeUpdatedNotice
 	)
 	switch {
 	case errors.As(err, &port):
@@ -51,6 +58,26 @@ func Message(err error) string {
 		return fmt.Sprintf(i18n.T("ssmygo.subsFailed"), subsFail.Failed, subsFail.Total)
 	case errors.Is(err, controller.ErrBadSubscriptionURL):
 		return i18n.T("ssmygo.badSubURL")
+	case errors.As(err, &geoDone):
+		return i18n.T("PAC updated")
+	case errors.As(err, &geoGroups):
+		return fmt.Sprintf(i18n.T("ssmygo.geositeMissing"), strings.Join(geoGroups.Groups, ", "))
+	case errors.Is(err, geosite.ErrChecksum):
+		return i18n.T("ssmygo.geositeChecksum")
+	case errors.Is(err, geosite.ErrTooLarge):
+		return i18n.T("ssmygo.geositeTooLarge")
+	case errors.Is(err, geosite.ErrNotDLC):
+		return i18n.T("ssmygo.geositeNotDLC")
+	case errors.As(err, &geoFail):
+		return fmt.Sprintf(i18n.T("ssmygo.geositeFailed"), geoFail.Err)
+	case errors.As(err, &skipped):
+		lines := make([]string, len(skipped.Lines))
+		for i, l := range skipped.Lines {
+			lines[i] = strconv.Itoa(l)
+		}
+		return fmt.Sprintf(i18n.T("ssmygo.userRuleSkipped"), len(skipped.Lines), strings.Join(lines, ", "))
+	case errors.As(err, &userRead):
+		return fmt.Sprintf(i18n.T("ssmygo.userRuleRead"), userRead.Err)
 	}
 	return err.Error()
 }

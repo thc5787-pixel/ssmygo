@@ -36,7 +36,7 @@ func TestBuildMenu(t *testing.T) {
 	for _, it := range m.Items() {
 		labels = append(labels, it.Label)
 	}
-	if strings.Join(labels, "|") != "System Proxy|Servers|Forward Proxy...|Online Config...||Start on Boot|Allow other Devices to connect|Help||Quit" {
+	if strings.Join(labels, "|") != "System Proxy|Servers|PAC|Forward Proxy...|Online Config...||Start on Boot|Allow other Devices to connect|Help||Quit" {
 		t.Fatalf("top level %q", labels)
 	}
 }

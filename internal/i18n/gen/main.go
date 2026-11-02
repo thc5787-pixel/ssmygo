@@ -31,6 +31,8 @@ var keys = []string{
 	"&Top Most", "&Show Toolbar", "Inbound", "Outbound",
 	"Online Config...", "Share Server Config...", "Scan QRCode from Screen...",
 	"No QRCode found. Try to zoom in or move it to the center of the screen.", "Invalid QR Code content: {0}",
+	"Update Local PAC from Geosite", "Edit User Rule for Geosite...", "PAC updated",
+	"No updates found. Please report to Geosite if you have problems with it.",
 }
 
 // resxNames are WPF strings (Localization/Strings*.resx), stored as "resx.<name>".
@@ -71,6 +73,14 @@ var extra = map[string][2]string{
 	"ssmygo.fromSub":          {"From subscription %s (read-only; updates replace it)", "来自订阅 %s（只读，更新时会被替换）"},
 	"ssmygo.addSubTitle":      {"Add as online config (SIP008) subscription?", "添加为在线配置（SIP008）订阅？"},
 	"ssmygo.addSubOK":         {"Add", "添加"},
+	"ssmygo.geositeFailed":    {"Geosite update failed: %s", "Geosite 更新失败：%s"},
+	"ssmygo.geositeChecksum":  {"Geosite update failed: checksum mismatch.", "Geosite 更新失败：校验失败。"},
+	"ssmygo.geositeMissing":   {"Geosite update not used: it lacks the groups %s.", "未采用 Geosite 更新：缺少分组 %s。"},
+	"ssmygo.geositeTooLarge":  {"Geosite update failed: the download is larger than 20 MB.", "Geosite 更新失败：下载内容超过 20 MB。"},
+	"ssmygo.geositeNotDLC":    {"Geosite update failed: the download is not a geosite file.", "Geosite 更新失败：下载的不是 geosite 文件。"},
+	"ssmygo.userRuleSkipped":  {"user-rule.txt: skipped %d unsupported rules (lines %s).", "user-rule.txt：已跳过 %d 条不支持的规则（第 %s 行）。"},
+	"ssmygo.userRuleRead":     {"Cannot read user-rule.txt; the previous rules are kept: %v", "无法读取 user-rule.txt，保留之前的规则：%v"},
+	"ssmygo.cannotOpen":       {"Cannot open %s: %v", "无法打开 %s：%v"},
 }
 
 var mnemonic = regexp.MustCompile(`\s?\(&\w\)|&`)
