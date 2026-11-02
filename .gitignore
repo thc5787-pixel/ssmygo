@@ -3,3 +3,4 @@ spike/
 .superpowers/
 build/
 *.exe
+.worktrees/
