@@ -109,3 +109,16 @@ func (c *Controller) SaveConfigWindowBounds(b config.WindowBounds) error {
 	}
 	return nil
 }
+
+// SetLanguage saves the UI language ("" follows the system, "en",
+// "zh-Hans"); the UI switches its strings itself.
+func (c *Controller) SetLanguage(tag string) error {
+	c.mu.Lock()
+	defer c.unlock()
+	c.cfg.Language = tag
+	c.dirty = true
+	if err := c.save(); err != nil {
+		return &SaveError{Err: err}
+	}
+	return nil
+}

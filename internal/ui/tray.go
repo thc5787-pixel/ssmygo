@@ -27,6 +27,7 @@ type MenuActions struct {
 	ShareServers, ScanQR, OnlineConfig func()
 	UpdateGeosite, EditUserRule        func() // the PAC submenu (P1-D)
 	SetStrategy                        func(string)
+	SetLanguage                        func(string) // "" follows the system
 	EditHotkeys                        func()
 }
 
@@ -84,6 +85,7 @@ func BuildMenu(s controller.State, a MenuActions) *mygo.Menu {
 		{ID: "lan", Label: T("Allow other Devices to connect"), Type: mygo.MenuItemCheckbox, Checked: s.ShareLAN,
 			Click: func(it *mygo.MenuItem, _ *mygo.Window) { a.ToggleLAN(it.IsChecked()) }},
 		{ID: "hotkeys", Label: T("Edit Hotkeys..."), Click: func(*mygo.MenuItem, *mygo.Window) { a.EditHotkeys() }},
+		{Label: T("ssmygo.language"), Submenu: languageItems(s, a)},
 		{Label: T("Help"), Submenu: []*mygo.MenuItem{
 			{ID: "help.logs", Label: T("Show Logs..."), Click: func(*mygo.MenuItem, *mygo.Window) { a.ShowLogs() }},
 			{ID: "help.pluginOutput", Label: T("Show Plugin Output"), Type: mygo.MenuItemCheckbox, Checked: s.ShowPluginOutput,
@@ -171,6 +173,15 @@ func RunTray(ctrl *controller.Controller, version string, logger *slog.Logger) e
 		Select:      func(i int) { runAction(ctrl, logger, func() error { return ctrl.SelectServer(i) }) },
 		SetStrategy: func(name string) { runAction(ctrl, logger, func() error { return ctrl.SetStrategy(name) }) },
 		EditHotkeys: func() { openHotkeysWindow(ctrl) },
+		SetLanguage: func(tag string) {
+			// Switch the strings first: the save below refreshes the tray.
+			if tag == "" {
+				i18n.SetLocale(i18n.SystemLocale())
+			} else {
+				i18n.SetLocale(tag)
+			}
+			runAction(ctrl, logger, func() error { return ctrl.SetLanguage(tag) })
+		},
 		Forward:     func() { OpenForwardWindow(ctrl) },
 		EditServers: func() { OpenConfigWindow(ctrl) },
 		ImportClipboard: func() {
@@ -318,3 +329,23 @@ var openLogWindow = func(*controller.Controller) {}
 
 // openHotkeysWindow opens the Hotkeys window (set by hotkeywin.go).
 var openHotkeysWindow = func(*controller.Controller) {}
+
+// languages are the UI languages; each names itself, so it can be found
+// whatever the current language.
+var languages = []struct{ tag, name string }{{"en", "English"}, {"zh-Hans", "简体中文"}}
+
+// languageItems is the Language submenu: follow the system, or one language.
+func languageItems(s controller.State, a MenuActions) []*mygo.MenuItem {
+	pick := func(tag string) func(*mygo.MenuItem, *mygo.Window) {
+		return func(*mygo.MenuItem, *mygo.Window) { a.SetLanguage(tag) }
+	}
+	items := []*mygo.MenuItem{
+		{ID: "lang.system", Label: i18n.T("ssmygo.languageSystem"), Type: mygo.MenuItemRadio, Checked: s.Language == "", Click: pick("")},
+		mygo.Separator(),
+	}
+	for _, l := range languages {
+		items = append(items, &mygo.MenuItem{ID: "lang." + l.tag, Label: l.name, Type: mygo.MenuItemRadio,
+			Checked: s.Language == l.tag, Click: pick(l.tag)})
+	}
+	return items
+}

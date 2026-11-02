@@ -115,6 +115,8 @@
   "ssmygo.hotkeyParse": "Not a valid hotkey.",
   "ssmygo.hotkeyTaken": "Could not register: the combination may be in use by another program.",
   "ssmygo.imported": "Imported %d, failed %d.",
+  "ssmygo.language": "Language",
+  "ssmygo.languageSystem": "Use system language",
   "ssmygo.logUnavailable": "Log file not available: %s",
   "ssmygo.newServer": "New server",
   "ssmygo.noLinks": "No ss:// links found in the clipboard.",

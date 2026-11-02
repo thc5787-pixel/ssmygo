@@ -31,6 +31,8 @@ type State struct {
 	// ShowPluginOutput: Help ▸ Show Plugin Output; the log window shows
 	// plugin output lines only when set.
 	ShowPluginOutput bool
+	// Language is the chosen UI language ("" follows the system).
+	Language string
 	// PluginFailure: plugin supervision gave up (crash loop, or the file was
 	// replaced and is no longer trusted). Not set for refusals of the user's
 	// own actions, which the UI handles where they happen.

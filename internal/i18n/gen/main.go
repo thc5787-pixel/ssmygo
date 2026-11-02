@@ -77,6 +77,8 @@ var extra = map[string][2]string{
 	"ssmygo.addSubTitle":      {"Add as online config (SIP008) subscription?", "添加为在线配置（SIP008）订阅？"},
 	"ssmygo.addSubOK":         {"Add", "添加"},
 	"ssmygo.newServer":        {"New server", "新服务器"},
+	"ssmygo.language":         {"Language", "语言"},
+	"ssmygo.languageSystem":   {"Use system language", "跟随系统"},
 	"ssmygo.geositeFailed":    {"Geosite update failed: %s", "Geosite 更新失败：%s"},
 	"ssmygo.geositeChecksum":  {"Geosite update failed: checksum mismatch.", "Geosite 更新失败：校验失败。"},
 	"ssmygo.geositeMissing":   {"Geosite update not used: it lacks the groups %s.", "未采用 Geosite 更新：缺少分组 %s。"},

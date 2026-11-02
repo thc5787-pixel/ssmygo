@@ -33,7 +33,7 @@ func main() {
 	if !mygo.App.RequestSingleInstanceLock() {
 		return // the running instance opens Edit Servers (OnSecondInstance)
 	}
-	i18n.SetLocale(userLocale())
+	i18n.SetLocale(i18n.SystemLocale())
 
 	var ctrl *controller.Controller
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -74,6 +74,9 @@ func main() {
 			return
 		}
 		ctrl = c
+		if lang := ctrl.State().Language; lang != "" { // tray ▸ Language
+			i18n.SetLocale(lang)
+		}
 		if err := ui.RunTray(ctrl, version, logger); err != nil {
 			logger.Error("tray", "err", err)
 			mygo.App.Quit()

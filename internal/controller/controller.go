@@ -612,6 +612,7 @@ func (c *Controller) stateLocked() State {
 	}
 	s.PluginFailure = c.pluginFailure
 	s.ShowPluginOutput = c.cfg.ShowPluginOutput
+	s.Language = c.cfg.Language
 	s.UDPDisabled = c.cfg.Proxy.UseProxy // same rule as core.Build
 	s.Strategy = strategyName(c.cfg)
 	_, s.StrategyExcluded = core.StrategyMembers(c.cfg)

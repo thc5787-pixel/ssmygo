@@ -43,10 +43,13 @@ type Config struct {
 	TrustedPlugins       []TrustedPlugin `json:"ssmygoTrustedPlugins,omitempty"`
 	LogViewer            LogViewer       `json:"logViewer"`
 	ConfigWindow         WindowBounds    `json:"ssmygoConfigWindow,omitzero"`
-	ShowPluginOutput     bool            `json:"showPluginOutput"`
-	OnlineConfigSource   []string        `json:"onlineConfigSource"`
-	Strategy             StrategyID      `json:"strategy"`
-	Hotkey               HotkeyConfig    `json:"hotkey"`
+	// Language is the UI language: "" follows the system, else "en" or
+	// "zh-Hans" (tray ▸ Language).
+	Language           string       `json:"ssmygoLanguage,omitempty"`
+	ShowPluginOutput   bool         `json:"showPluginOutput"`
+	OnlineConfigSource []string     `json:"onlineConfigSource"`
+	Strategy           StrategyID   `json:"strategy"`
+	Hotkey             HotkeyConfig `json:"hotkey"`
 
 	extra map[string]json.RawMessage
 }

@@ -36,7 +36,7 @@ func TestBuildMenu(t *testing.T) {
 	for _, it := range m.Items() {
 		labels = append(labels, it.Label)
 	}
-	if strings.Join(labels, "|") != "System Proxy|Servers|PAC|Forward Proxy...|Online Config...||Start on Boot|Allow other Devices to connect|Edit Hotkeys...|Help||Quit" {
+	if strings.Join(labels, "|") != "System Proxy|Servers|PAC|Forward Proxy...|Online Config...||Start on Boot|Allow other Devices to connect|Edit Hotkeys...|Language|Help||Quit" {
 		t.Fatalf("top level %q", labels)
 	}
 }
@@ -202,5 +202,33 @@ func TestMenuHasCItems(t *testing.T) {
 	}
 	if !shared || !scanned || !online {
 		t.Fatalf("share %v scan %v online %v", shared, scanned, online)
+	}
+}
+
+// Language submenu between Edit Hotkeys and Help.
+func TestLanguageMenu(t *testing.T) {
+	var picked *string
+	a := MenuActions{SetLanguage: func(tag string) { picked = &tag }}
+	m := BuildMenu(controller.State{Language: "zh-Hans"}, a)
+	sys, en, zh := m.ItemByID("lang.system"), m.ItemByID("lang.en"), m.ItemByID("lang.zh-Hans")
+	if sys == nil || en == nil || zh == nil {
+		t.Fatal("language items missing")
+	}
+	if sys.IsChecked() || en.IsChecked() || !zh.IsChecked() {
+		t.Fatal("wrong item checked")
+	}
+	if en.Label != "English" || zh.Label != "简体中文" {
+		t.Fatalf("labels %q %q: each language names itself", en.Label, zh.Label)
+	}
+	en.Click(en, nil)
+	if picked == nil || *picked != "en" {
+		t.Fatalf("picked %v", picked)
+	}
+	var labels []string
+	for _, it := range m.Items() {
+		labels = append(labels, it.Label)
+	}
+	if !strings.Contains(strings.Join(labels, "|"), "Edit Hotkeys...|Language|Help") {
+		t.Fatalf("order %q", labels)
 	}
 }

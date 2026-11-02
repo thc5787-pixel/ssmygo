@@ -119,3 +119,19 @@ func TestSaveConfigWindowBounds(t *testing.T) {
 		t.Fatalf("saved %+v", cfg.ConfigWindow)
 	}
 }
+
+func TestSetLanguage(t *testing.T) {
+	e := newEnv(t)
+	e.writeConfig(nil)
+	c := e.start()
+	if err := c.SetLanguage("en"); err != nil {
+		t.Fatal(err)
+	}
+	if c.State().Language != "en" {
+		t.Fatalf("state %q", c.State().Language)
+	}
+	cfg, _ := config.Load(e.deps().Paths.Config())
+	if cfg.Language != "en" {
+		t.Fatalf("saved %q", cfg.Language)
+	}
+}
