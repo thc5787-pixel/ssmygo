@@ -36,7 +36,7 @@ func scanWith(r *scanRec, texts []string, captureErr error) {
 		askSubscribe:       func(u string) bool { r.asked = u; return r.answerYes },
 		addSubscription:    func(u string) error { r.added = u; return nil },
 		updateSubscription: func(u string) { r.updated = u },
-		openEditor:         func() { r.opened = true },
+		openEditor:         func([]config.Server) { r.opened = true },
 		notify:             func(s string) { r.notes = append(r.notes, s) },
 	})
 }
@@ -93,5 +93,21 @@ func TestScanCaptureError(t *testing.T) {
 	scanWith(&r, nil, errors.New("no desktop"))
 	if len(r.notes) != 1 || !strings.Contains(r.notes[0], "Screen capture failed") {
 		t.Fatalf("%q", r.notes)
+	}
+}
+
+// Final review #2: the editor gets the imported servers, so an open Edit
+// Servers window does not drop them on OK.
+func TestScanPassesImportedToEditor(t *testing.T) {
+	var got []config.Server
+	scanScreen(scanDeps{
+		capture:    func() ([]image.Image, error) { return []image.Image{image.NewRGBA(image.Rect(0, 0, 1, 1))}, nil },
+		decode:     func(image.Image) []string { return []string{goodSS} },
+		importURLs: config.ParseURLs,
+		openEditor: func(added []config.Server) { got = added },
+		notify:     func(string) {},
+	})
+	if len(got) != 1 || got[0].Remarks != "Tokyo" {
+		t.Fatalf("editor got %+v", got)
 	}
 }

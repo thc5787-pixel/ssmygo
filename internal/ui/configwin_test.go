@@ -298,6 +298,7 @@ func subConfig() *config.Config {
 	c := sample()
 	c.Configs = append(c.Configs, config.Server{Server: "hk.example.com", ServerPort: 443, Method: "aes-256-gcm",
 		Password: "pw", Remarks: "HK-sub", Group: "https://sub.example.com/s?token=x", Timeout: 5})
+	c.OnlineConfigSource = []string{"https://sub.example.com/s?token=x"}
 	return c
 }
 
@@ -338,5 +339,38 @@ func TestConfigWinMergeKeepsOwnEdits(t *testing.T) {
 	last := w.servers[len(w.servers)-1]
 	if last.Remarks != "SG-sub" || len(w.servers) != len(next.Configs) {
 		t.Fatalf("subscription rows not replaced: %d rows, last %q", len(w.servers), last.Remarks)
+	}
+}
+
+// Final review #1: an own server selected below a subscription block stays
+// selected when a merge moves it up.
+func TestConfigWinMergeKeepsOwnSelection(t *testing.T) {
+	cfg := subConfig()
+	own2 := cfg.Configs[0]
+	own2.Remarks = "own2"
+	cfg.Configs = append(cfg.Configs, own2) // [own…, sub, own2] as an old import left it
+	w, _, _ := newWin(cfg, nil)
+	w.sel = len(w.servers) - 1
+	w.MergeSubscriptions(subConfig())
+	if w.servers[w.sel].Remarks != "own2" {
+		t.Fatalf("selection moved to %q", w.servers[w.sel].Remarks)
+	}
+}
+
+// Final review #4: a hand-typed group (not a subscription) stays editable.
+func TestConfigWinHandGroupedEditable(t *testing.T) {
+	cfg := sample()
+	cfg.Configs[0].Group = "My group"
+	w, _, tt := newWin(cfg, nil)
+	w.sel = 0
+	tt.Frame()
+	if tt.HasText("From subscription") {
+		t.Fatal("hand-grouped server shown as a subscription server")
+	}
+	n := len(w.servers)
+	tt.Click("Delete")
+	tt.Frame()
+	if len(w.servers) != n-1 {
+		t.Fatal("hand-grouped server cannot be deleted")
 	}
 }

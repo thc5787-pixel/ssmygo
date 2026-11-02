@@ -33,9 +33,10 @@ type onlineView struct {
 	inputErr string
 	busy     bool
 	confirm  bool
-	// run executes work off the main thread and then done on it; nil runs
-	// both at once (tests).
-	run  func(work func(), done func())
+	opErr    string // the last action's error
+	// run executes work off the main thread (with the plugin trust dialog)
+	// and then done on it; nil runs both at once (tests).
+	run  func(work func() error, done func(error))
 	copy func(string)
 }
 
@@ -52,17 +53,36 @@ func (v *onlineView) refresh() {
 	}
 }
 
-// do runs work in the background with the buttons disabled.
-func (v *onlineView) do(work func()) {
+// do runs work in the background with the buttons disabled, and shows
+// its error.
+func (v *onlineView) do(work func() error) {
 	if v.busy {
 		return
 	}
-	v.busy = true
+	v.busy, v.opErr = true, ""
 	run := v.run
 	if run == nil {
-		run = func(w, d func()) { w(); d() }
+		run = func(w func() error, d func(error)) { d(w()) }
 	}
-	run(work, func() { v.busy = false; v.refresh() })
+	run(work, func(err error) {
+		v.busy = false
+		if err != nil {
+			v.opErr = Message(err)
+		}
+		v.refresh()
+	})
+}
+
+func (v *onlineView) update(u string) func() error {
+	return func() error { _, err := v.src.UpdateSubscription(context.Background(), u); return err }
+}
+
+func (v *onlineView) updateAll() error {
+	n := len(v.src.Subscriptions())
+	if failed := v.src.UpdateAllSubscriptions(context.Background()); len(failed) > 0 {
+		return &controller.SubscriptionsFailedError{Failed: len(failed), Total: n}
+	}
+	return nil
 }
 
 func (v *onlineView) selected() (string, bool) {
@@ -88,15 +108,14 @@ func (v *onlineView) add() {
 	v.input, v.inputErr = "", ""
 	v.refresh()
 	v.sel = len(v.urls) - 1
-	v.do(func() { v.src.UpdateSubscription(context.Background(), u) })
+	v.do(v.update(u))
 }
 
 func (v *onlineView) confirmRemove() {
-	if u, ok := v.selected(); ok {
-		v.src.RemoveSubscription(u)
-	}
 	v.confirm = false
-	v.refresh()
+	if u, ok := v.selected(); ok {
+		v.do(func() error { return v.src.RemoveSubscription(u) })
+	}
 }
 
 // View lays out the original OnlineConfigView: the list with buttons on
@@ -113,10 +132,10 @@ func (v *onlineView) View(c *mui.Context) {
 			})
 			mui.Column(c).Gap(t.Space(2)).Children(func() {
 				if mui.Button(c, T("resx.updateButton_Content")).Disabled(v.busy || !hasSel).Clicked() {
-					v.do(func() { v.src.UpdateSubscription(context.Background(), cur) })
+					v.do(v.update(cur))
 				}
 				if mui.Button(c, T("resx.updateAllButton_Content")).Disabled(v.busy || len(v.urls) == 0).Clicked() {
-					v.do(func() { v.src.UpdateAllSubscriptions(context.Background()) })
+					v.do(v.updateAll)
 				}
 				if mui.Button(c, T("resx.copyLinkButton_Content")).Disabled(!hasSel).Clicked() && v.copy != nil {
 					v.copy(cur)
@@ -139,6 +158,9 @@ func (v *onlineView) View(c *mui.Context) {
 		})
 		if v.inputErr != "" {
 			mui.Text(c, v.inputErr).TextColor(t.Danger)
+		}
+		if v.opErr != "" {
+			mui.Text(c, v.opErr).TextColor(t.Danger)
 		}
 	})
 	mui.Modal(c, &v.confirm, func() {
@@ -190,7 +212,9 @@ func OpenOnlineConfigWindow(ctrl *controller.Controller) {
 	v := newOnlineView(ctrl)
 	win := mygo.NewWindow(mygo.WindowOptions{Title: wpf("resx.OnlineConfigDelivery"), Width: 480, Height: 510,
 		MinWidth: 400, MinHeight: 300, Content: mui.View(v.View)})
-	v.run = func(work, done func()) { go func() { work(); win.Update(done) }() }
+	v.run = func(work func() error, done func(error)) {
+		runActionWith(ctrl.TrustPlugin, nil, work, func(err error) { win.Update(func() { done(err) }) })
+	}
 	v.copy = func(s string) { mygo.Clipboard.WriteText(s) }
 	off := ctrl.Subscribe(func(controller.State) { win.Update(v.refresh) })
 	win.OnClosed(func() { off(); onlineWin = nil })

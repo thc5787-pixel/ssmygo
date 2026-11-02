@@ -2,10 +2,12 @@
 package subscribe
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -33,7 +35,10 @@ func Fetch(ctx context.Context, rawURL string, proxyPort int) (servers []config.
 	}
 	tr := &http.Transport{Proxy: nil, ForceAttemptHTTP2: true, TLSHandshakeTimeout: 10 * time.Second}
 	if proxyPort > 0 {
-		tr.Proxy = http.ProxyURL(&url.URL{Scheme: "http", Host: "127.0.0.1:" + strconv.Itoa(proxyPort)})
+		// Always a CONNECT tunnel, http:// too: the proxy then sees only
+		// host:port, never the path and its token (the core logs request
+		// URIs of failed plain-HTTP proxy requests).
+		tr.DialContext = connectDialer("127.0.0.1:" + strconv.Itoa(proxyPort))
 	}
 	defer tr.CloseIdleConnections()
 	client := &http.Client{Transport: tr, Timeout: timeout}
@@ -75,4 +80,36 @@ func Host(rawURL string) string {
 		return "(invalid URL)"
 	}
 	return u.Hostname()
+}
+
+// connectDialer returns a DialContext that opens every connection as an
+// HTTP CONNECT tunnel through proxy.
+func connectDialer(proxy string) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		var d net.Dialer
+		c, err := d.DialContext(ctx, "tcp", proxy)
+		if err != nil {
+			return nil, err
+		}
+		if dl, ok := ctx.Deadline(); ok {
+			c.SetDeadline(dl)
+		}
+		req := &http.Request{Method: http.MethodConnect, URL: &url.URL{Opaque: addr}, Host: addr, Header: http.Header{}}
+		if err := req.Write(c); err != nil {
+			c.Close()
+			return nil, err
+		}
+		resp, err := http.ReadResponse(bufio.NewReader(c), req)
+		if err != nil {
+			c.Close()
+			return nil, err
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			c.Close()
+			return nil, fmt.Errorf("proxy refused the connection: %s", resp.Status)
+		}
+		c.SetDeadline(time.Time{})
+		return c, nil
+	}
 }

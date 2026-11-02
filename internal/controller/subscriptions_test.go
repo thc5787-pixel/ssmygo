@@ -260,3 +260,80 @@ func TestFetchPortRules(t *testing.T) {
 		t.Fatalf("no server: port %d, want 0 (direct)", p)
 	}
 }
+
+// Final review: a failed commit leaves the selection and raises no notice.
+func TestFailedCommitNoNotice(t *testing.T) {
+	directFetch(t)
+	e := newEnv(t)
+	doc := `{"version":1,"servers":[{"server":"192.0.2.9","server_port":8388,"password":"pw","method":"aes-256-gcm","remarks":"new","plugin":"no-such-plugin-xyz"}]}`
+	a := subServer(t, func() (int, string) { return 200, doc })
+	e.writeConfig(func(c *config.Config) {
+		withSub(a, "old")(c)
+		c.Index = 1
+		c.Enabled = true
+	})
+	c := e.start()
+	if _, err := c.UpdateSubscription(context.Background(), a); err == nil {
+		t.Fatal("update with a missing plugin succeeded")
+	}
+	if s := current(c); s.Remarks != "old" {
+		t.Fatalf("selected %q", s.Remarks)
+	}
+	if n := c.TakeNotice(); n != nil {
+		t.Fatalf("false notice: %v", n)
+	}
+}
+
+// Final review #1: imported servers go before subscription servers, and the
+// selection stays on the same server.
+func TestImportKeepsOwnFirst(t *testing.T) {
+	e := newEnv(t)
+	e.writeConfig(func(c *config.Config) {
+		withSub("https://a.example/s", "sub1")(c)
+		c.Index = 1 // sub1
+	})
+	c := e.start()
+	if _, errs := c.ImportURLs("ss://YWVzLTI1Ni1nY206cHc@new.example.com:8388#imported"); len(errs) > 0 {
+		t.Fatal(errs)
+	}
+	cfg := c.Config()
+	if cfg.Configs[1].Remarks != "imported" || cfg.Configs[2].Remarks != "sub1" {
+		t.Fatalf("order %v", []string{cfg.Configs[0].Remarks, cfg.Configs[1].Remarks, cfg.Configs[2].Remarks})
+	}
+	if s := current(c); s.Remarks != "sub1" {
+		t.Fatalf("selected %q", s.Remarks)
+	}
+}
+
+// Final review #4: Edit Servers cannot write back stale subscription
+// servers; hand-grouped servers (not a subscription) stay the user's.
+func TestSaveServersUsesCurrentSubscriptions(t *testing.T) {
+	e := newEnv(t)
+	e.writeConfig(func(c *config.Config) {
+		withSub("https://a.example/s", "a-current")(c)
+		hand := c.Configs[0]
+		hand.Remarks, hand.Group = "hand-grouped", "My group"
+		c.Configs = append(c.Configs, hand)
+	})
+	c := e.start()
+	cfg := c.Config()
+	own := cfg.Configs[0]
+	stale := config.Server{Server: "192.0.2.99", ServerPort: 1, Password: "x", Method: "aes-256-gcm", Remarks: "a-stale", Group: "https://a.example/s", Timeout: 5}
+	removed := config.Server{Server: "192.0.2.98", ServerPort: 1, Password: "x", Method: "aes-256-gcm", Remarks: "gone-sub", Group: "https://gone.example/s", Timeout: 5}
+	var hand config.Server
+	for _, s := range cfg.Configs {
+		if s.Remarks == "hand-grouped" {
+			hand = s
+		}
+	}
+	if err := c.SaveServers([]config.Server{own, hand, stale, removed}, 0, cfg.LocalPort, true); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, s := range c.Config().Configs {
+		got = append(got, s.Remarks)
+	}
+	if strings.Join(got, ",") != strings.Join([]string{own.Remarks, "hand-grouped", "a-current"}, ",") {
+		t.Fatalf("saved %v", got)
+	}
+}

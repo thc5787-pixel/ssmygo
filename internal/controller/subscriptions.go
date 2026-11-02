@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"reflect"
 	"slices"
 	"time"
 
@@ -98,9 +99,15 @@ func (c *Controller) RemoveSubscription(rawURL string) error {
 	defer c.unlock()
 	next := c.cfg.Clone()
 	next.OnlineConfigSource = slices.DeleteFunc(slices.Clone(next.OnlineConfigSource), func(s string) bool { return s == rawURL })
-	c.replaceGroup(next, rawURL, nil)
+	notice := c.replaceGroup(next, rawURL, nil)
+	if err := c.commit(next); err != nil {
+		return err
+	}
 	delete(c.subResults, rawURL)
-	return c.commit(next)
+	if notice != nil {
+		c.notice = notice
+	}
+	return nil
 }
 
 // UpdateSubscription fetches one subscription and replaces its servers.
@@ -122,11 +129,14 @@ func (c *Controller) UpdateSubscription(ctx context.Context, rawURL string) (Sub
 		return res, err
 	}
 	next := c.cfg.Clone()
-	c.replaceGroup(next, rawURL, servers)
+	notice := c.replaceGroup(next, rawURL, servers)
 	if err := c.commit(next); err != nil {
 		res.Err = err
 		c.subResults[rawURL] = res
 		return res, err
+	}
+	if notice != nil { // only once the change stands
+		c.notice = notice
 	}
 	c.d.Logger.Info("subscription updated", "host", subscribe.Host(rawURL), "servers", len(servers), "skipped", skipped)
 	return res, nil
@@ -158,9 +168,9 @@ func (c *Controller) fetchPort() int {
 // replaceGroup replaces next's servers of group with servers, keeps them
 // after the user's own, and keeps the selected server selected (matched by
 // address, port, method, password and plugin). When it is gone the first
-// server of its subscription, else the first server, is selected and a
-// notice set.
-func (c *Controller) replaceGroup(next *config.Config, group string, servers []config.Server) {
+// server of its subscription, else the first server, is selected and the
+// returned notice says so; the caller shows it once the commit succeeds.
+func (c *Controller) replaceGroup(next *config.Config, group string, servers []config.Server) error {
 	var sel config.Server
 	hadSel := false
 	if s, ok := next.Current(); ok {
@@ -170,12 +180,12 @@ func (c *Controller) replaceGroup(next *config.Config, group string, servers []c
 	next.Configs = config.SortByGroup(append(kept, servers...))
 	if !hadSel {
 		next.Index = 0
-		return
+		return nil
 	}
 	for i, s := range next.Configs {
 		if sameServer(s, sel) {
 			next.Index = i
-			return
+			return nil
 		}
 	}
 	next.Index = 0
@@ -186,8 +196,9 @@ func (c *Controller) replaceGroup(next *config.Config, group string, servers []c
 		}
 	}
 	if len(next.Configs) > 0 {
-		c.notice = &SelectionReplacedError{Old: sel.Title(), New: next.Configs[next.Index].Title()}
+		return &SelectionReplacedError{Old: sel.Title(), New: next.Configs[next.Index].Title()}
 	}
+	return nil
 }
 
 func sameServer(a, b config.Server) bool {
@@ -221,4 +232,45 @@ func (c *Controller) GroupSize(rawURL string) int {
 		}
 	}
 	return n
+}
+
+// isSubscription reports whether group names one of cfg's subscriptions.
+func isSubscription(cfg *config.Config, group string) bool {
+	return group != "" && slices.Contains(cfg.OnlineConfigSource, group)
+}
+
+// reconcileSaved takes the Edit Servers list and returns what to save: the
+// user's own servers from the window (no group, or a hand-typed group that
+// still exists), the subscription servers as the controller has them now
+// (the window may hold stale or removed ones), own servers first. index is
+// mapped to the same server.
+func reconcileSaved(cur *config.Config, servers []config.Server, index int) ([]config.Server, int) {
+	var sel config.Server
+	hasSel := index >= 0 && index < len(servers)
+	if hasSel {
+		sel = servers[index]
+	}
+	groupExists := func(g string) bool {
+		return slices.ContainsFunc(cur.Configs, func(s config.Server) bool { return s.Group == g })
+	}
+	var out []config.Server
+	for _, s := range servers {
+		if s.Group == "" || (!isSubscription(cur, s.Group) && groupExists(s.Group)) {
+			out = append(out, s)
+		}
+	}
+	for _, s := range cur.Configs {
+		if isSubscription(cur, s.Group) {
+			out = append(out, s)
+		}
+	}
+	out = config.SortByGroup(out)
+	if hasSel {
+		for i, s := range out {
+			if sameServer(s, sel) || (s.Group == "" && reflect.DeepEqual(s, sel)) {
+				return out, i
+			}
+		}
+	}
+	return out, 0
 }

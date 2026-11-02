@@ -90,7 +90,7 @@ func TestOnlineAddValidation(t *testing.T) {
 func TestOnlineBusyDisablesButtons(t *testing.T) {
 	v, f, tt := newOnline("https://a.example/s")
 	var pending func()
-	v.run = func(work func(), done func()) { pending = func() { work(); done() } }
+	v.run = func(work func() error, done func(error)) { pending = func() { done(work()) } }
 	tt.Frame()
 	tt.Click("Update all")
 	tt.Frame()
@@ -164,3 +164,16 @@ func TestOnlineSnapshots(t *testing.T) {
 }
 
 var _ = config.Server{}
+
+// Final review #3: a failed action is shown, not swallowed.
+func TestOnlineShowsActionError(t *testing.T) {
+	v, _, tt := newOnline("https://a.example/s")
+	v.sel = 0
+	v.run = func(work func() error, done func(error)) { work(); done(errors.New("plugin not trusted")) }
+	tt.Frame()
+	tt.Click("Update")
+	tt.Frame()
+	if !tt.HasText("plugin not trusted") {
+		t.Fatalf("texts %q", tt.Texts())
+	}
+}

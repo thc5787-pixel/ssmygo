@@ -49,10 +49,6 @@ func newEditServer() editServer {
 	return e
 }
 
-// fromSubscription: the server came from a subscription (C-D4) and is
-// read-only here; the next update would overwrite any edit.
-func (e editServer) fromSubscription() bool { return !e.isNew && e.orig.Group != "" }
-
 // dirty reports whether the user added or changed this server.
 func (e editServer) dirty() bool { return e.isNew || e.formFields != e.base }
 
@@ -131,6 +127,20 @@ type ConfigWindow struct {
 	run      func(work func() error, done func(error))
 	busyPort string // the port text at that moment; editing it clears portBusy
 	onClose  func()
+	sources  map[string]bool // subscription URLs: their servers are read-only
+}
+
+// isSub: the server came from a subscription (C-D4) and is read-only here;
+// the next update would overwrite any edit. A hand-typed group that is not
+// a subscription (the original allowed it) stays the user's.
+func (w *ConfigWindow) isSub(e editServer) bool { return !e.isNew && w.sources[e.orig.Group] }
+
+func sourcesOf(cfg *config.Config) map[string]bool {
+	m := map[string]bool{}
+	for _, u := range cfg.OnlineConfigSource {
+		m[u] = true
+	}
+	return m
 }
 
 // AppendServers adds servers imported while the window is open, so OK does
@@ -143,7 +153,8 @@ func (w *ConfigWindow) AppendServers(servers []config.Server) {
 
 // NewConfigWindow edits a copy of initial.
 func NewConfigWindow(save SaveFunc, initial *config.Config) *ConfigWindow {
-	w := &ConfigWindow{save: save, sel: initial.Index, port: strconv.Itoa(initial.LocalPort), portable: initial.PortableMode}
+	w := &ConfigWindow{save: save, sel: initial.Index, port: strconv.Itoa(initial.LocalPort), portable: initial.PortableMode,
+		sources: sourcesOf(initial)}
 	for _, s := range initial.Configs {
 		w.servers = append(w.servers, fromServer(s))
 	}
@@ -237,10 +248,10 @@ func (w *ConfigWindow) View(c *mui.Context) {
 	w.list.Label = func(i int) string { return w.title(i) }
 	valid := w.sel >= 0 && w.sel < len(w.servers)
 	canSave := w.valid() && !w.saving
-	ro := valid && w.servers[w.sel].fromSubscription()
+	ro := valid && w.isSub(w.servers[w.sel])
 	// Own servers stay above subscription servers: no moving across.
 	canUp := valid && !ro && w.sel > 0
-	canDown := valid && !ro && w.sel < len(w.servers)-1 && !w.servers[w.sel+1].fromSubscription()
+	canDown := valid && !ro && w.sel < len(w.servers)-1 && !w.isSub(w.servers[w.sel+1])
 
 	if c.Shortcut(0, mui.KeyEscape) {
 		w.close()
@@ -413,7 +424,7 @@ func mergeIntoOpenConfigWindow(cfg *config.Config) {
 // servers) and returns its index.
 func (w *ConfigWindow) insertOwn(e editServer) int {
 	i := 0
-	for i < len(w.servers) && !w.servers[i].fromSubscription() {
+	for i < len(w.servers) && !w.isSub(w.servers[i]) {
 		i++
 	}
 	w.servers = slices.Insert(w.servers, i, e)
@@ -424,11 +435,20 @@ func (w *ConfigWindow) insertOwn(e editServer) int {
 // keeping the rows (and unsaved edits) of the user's own servers.
 func (w *ConfigWindow) MergeSubscriptions(cfg *config.Config) {
 	var selOrig config.Server
-	selSub := w.sel >= 0 && w.sel < len(w.servers) && w.servers[w.sel].fromSubscription()
+	valid := w.sel >= 0 && w.sel < len(w.servers)
+	selSub := valid && w.isSub(w.servers[w.sel])
+	ownBefore := 0 // the selected own row's place among own rows
 	if selSub {
 		selOrig = w.servers[w.sel].orig
+	} else if valid {
+		for i := 0; i < w.sel; i++ {
+			if !w.isSub(w.servers[i]) {
+				ownBefore++
+			}
+		}
 	}
-	own := slices.DeleteFunc(slices.Clone(w.servers), func(e editServer) bool { return e.fromSubscription() })
+	own := slices.DeleteFunc(slices.Clone(w.servers), func(e editServer) bool { return w.isSub(e) })
+	w.sources = sourcesOf(cfg)
 	merged := own
 	for _, s := range cfg.Configs {
 		if s.Group != "" {
@@ -436,10 +456,13 @@ func (w *ConfigWindow) MergeSubscriptions(cfg *config.Config) {
 		}
 	}
 	w.servers = merged
+	if valid && !selSub {
+		w.sel = ownBefore // own rows come first, in the same order
+	}
 	if selSub {
 		w.sel = 0
 		for i, e := range w.servers {
-			if e.fromSubscription() && e.orig.Server == selOrig.Server && e.orig.ServerPort == selOrig.ServerPort && e.orig.Group == selOrig.Group {
+			if w.isSub(e) && reflect.DeepEqual(e.orig, selOrig) {
 				w.sel = i
 				break
 			}
@@ -453,7 +476,7 @@ func (w *ConfigWindow) MergeSubscriptions(cfg *config.Config) {
 func (w *ConfigWindow) subscriptionsDiffer(cfg *config.Config) bool {
 	var mine, theirs []config.Server
 	for _, e := range w.servers {
-		if e.fromSubscription() {
+		if w.isSub(e) {
 			mine = append(mine, e.orig)
 		}
 	}

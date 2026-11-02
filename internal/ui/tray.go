@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo"
+	"github.com/thc5787/ssmygo/internal/config"
 	"github.com/thc5787/ssmygo/internal/controller"
 	"github.com/thc5787/ssmygo/internal/i18n"
 	"github.com/thc5787/ssmygo/internal/traffic"
@@ -173,7 +174,12 @@ func RunTray(ctrl *controller.Controller, version string, logger *slog.Logger) e
 		OnlineConfig: func() { OpenOnlineConfigWindow(ctrl) },
 		ScanQR: func() {
 			notify := func(m string) { Notify(logger, m) }
-			open := func() { mygo.RunOnMain(func() { OpenConfigWindow(ctrl) }) }
+			open := func(added []config.Server) {
+				mygo.RunOnMain(func() {
+					appendToOpenConfigWindow(added) // an open window keeps them on OK
+					OpenConfigWindow(ctrl)
+				})
+			}
 			go scanScreen(realScanDeps(ctrl, notify, open)) // capture and the dialog block
 		},
 		TogglePluginOutput: func(on bool) {

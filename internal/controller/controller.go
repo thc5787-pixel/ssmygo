@@ -442,6 +442,9 @@ func (c *Controller) SetShareLAN(on bool) error {
 func (c *Controller) SaveServers(servers []config.Server, index, port int, portable bool) error {
 	c.mu.Lock()
 	defer c.unlock()
+	// Subscription servers are the controller's: the window's copy may be
+	// stale (an update or removal landed while it was open).
+	servers, index = reconcileSaved(c.cfg, servers, index)
 	for _, s := range servers {
 		if c.unchanged(s) {
 			continue
@@ -528,7 +531,17 @@ func (c *Controller) ImportURLs(text string) ([]config.Server, []error) {
 		return nil, errs
 	}
 	next := c.cfg.Clone()
-	next.Configs = append(next.Configs, servers...)
+	sel, hasSel := next.Current()
+	// Own servers stay above subscription servers.
+	next.Configs = config.SortByGroup(append(next.Configs, servers...))
+	if hasSel {
+		for i, s := range next.Configs {
+			if sameServer(s, sel) {
+				next.Index = i
+				break
+			}
+		}
+	}
 	next.FirstRun = false
 	if err := c.commit(next); err != nil {
 		return nil, append(errs, err)

@@ -22,7 +22,7 @@ type scanDeps struct {
 	askSubscribe       func(url string) bool
 	addSubscription    func(url string) error
 	updateSubscription func(url string)
-	openEditor         func()
+	openEditor         func(added []config.Server)
 	notify             func(string)
 }
 
@@ -60,7 +60,7 @@ func scanScreen(d scanDeps) {
 			d.notify(invalidQR(links[0]))
 			return
 		}
-		d.openEditor()
+		d.openEditor(added)
 		d.notify(fmt.Sprintf(i18n.T("ssmygo.imported"), len(added), len(errs)))
 		return
 	}
@@ -93,7 +93,7 @@ func invalidQR(text string) string {
 
 // realScanDeps wires the scan to the screen, the controller and the UI.
 // It runs off the main thread (capture and the dialog block).
-func realScanDeps(ctrl *controller.Controller, notify func(string), openEditor func()) scanDeps {
+func realScanDeps(ctrl *controller.Controller, notify func(string), openEditor func([]config.Server)) scanDeps {
 	return scanDeps{
 		capture:    screencap.CaptureAll,
 		decode:     qrcode.Decode,

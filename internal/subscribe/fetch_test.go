@@ -1,6 +1,7 @@
 package subscribe
 
 import (
+	"bufio"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -119,5 +120,30 @@ func TestFetchErrorHidesToken(t *testing.T) {
 	}
 	if h := Host("https://user:pw@sub.example.com:8443/x?t=1"); h != "sub.example.com" {
 		t.Fatalf("Host = %q", h)
+	}
+}
+
+// Final review: an http:// subscription must reach the local port as a
+// CONNECT tunnel, so the proxy (and its log) never sees the path or token.
+func TestFetchHTTPThroughProxyUsesConnect(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	first := make(chan string, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		line, _ := bufio.NewReader(c).ReadString('\n')
+		first <- line
+	}()
+	Fetch(context.Background(), "http://sub.example.com/s?token=SECRET", ln.Addr().(*net.TCPAddr).Port)
+	line := <-first
+	if !strings.HasPrefix(line, "CONNECT sub.example.com:80 ") || strings.Contains(line, "SECRET") {
+		t.Fatalf("proxy saw %q", line)
 	}
 }
