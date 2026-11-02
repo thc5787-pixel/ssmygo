@@ -128,6 +128,28 @@ type ConfigWindow struct {
 	busyPort string // the port text at that moment; editing it clears portBusy
 	onClose  func()
 	sources  map[string]bool // subscription URLs: their servers are read-only
+	// attempted: OK or Apply was pressed with errors; until then a new
+	// server's untouched fields show none (as Windows forms do).
+	attempted bool
+}
+
+// errsFor is what row e shows of errs: everything for loaded servers and
+// after a failed OK, else only the fields the user changed.
+func (w *ConfigWindow) errsFor(e editServer, errs []config.FieldError) []config.FieldError {
+	if !e.isNew || w.attempted {
+		return errs
+	}
+	changed := map[string]bool{
+		"server": e.Server != e.base.Server, "server_port": e.Port != e.base.Port, "password": e.Password != e.base.Password,
+		"method": e.Method != e.base.Method, "timeout": e.Timeout != e.base.Timeout,
+	}
+	var out []config.FieldError
+	for _, fe := range errs {
+		if changed[fe.Field] {
+			out = append(out, fe)
+		}
+	}
+	return out
 }
 
 // isSub: the server came from a subscription (C-D4) and is read-only here;
@@ -201,7 +223,11 @@ func (w *ConfigWindow) valid() bool {
 // apply saves through run (synchronous when nil); OK closes the window on
 // success. While a save is in flight, further OK/Apply clicks are ignored.
 func (w *ConfigWindow) apply(closeAfter bool) {
-	if !w.valid() || w.saving {
+	if w.saving {
+		return
+	}
+	if !w.valid() {
+		w.attempted = true // show every error now
 		return
 	}
 	servers := make([]config.Server, len(w.servers))
@@ -232,22 +258,22 @@ func (w *ConfigWindow) apply(closeAfter bool) {
 	})
 }
 
-// mbtn is a button with an Alt+key mnemonic placed in the bottom grid.
-func mbtn(c *mui.Context, label string, k mui.Key, disabled bool, minW float32, row, col int) bool {
-	clicked := mui.Button(c, label).MinWidth(minW).Disabled(disabled).RowStart(row).ColumnStart(col).Clicked()
+// mbtn is a button with an Alt+key mnemonic.
+func mbtn(c *mui.Context, label string, k mui.Key, disabled bool, minW float32) bool {
+	clicked := mui.Button(c, label).MinWidth(minW).Disabled(disabled).Clicked()
 	return !disabled && (clicked || c.Shortcut(mui.Alt, k))
 }
 
-// View builds the window: list | "Server" group, then the 6-column button grid.
+// View builds the window in the Windows 10 (Settings app) style: the
+// server list in a left pane, the selected server's fields with labels
+// above them, then the list buttons, the port, and OK / Cancel / Apply.
 func (w *ConfigWindow) View(c *mui.Context) {
 	T := i18n.T
 	Compact(c)
 	t := c.Theme()
-	gap := t.Space(2)
 	w.list.Selected = &w.sel
 	w.list.Label = func(i int) string { return w.title(i) }
 	valid := w.sel >= 0 && w.sel < len(w.servers)
-	canSave := w.valid() && !w.saving
 	ro := valid && w.isSub(w.servers[w.sel])
 	// Own servers stay above subscription servers: no moving across.
 	canUp := valid && !ro && w.sel > 0
@@ -258,104 +284,117 @@ func (w *ConfigWindow) View(c *mui.Context) {
 		return
 	}
 
-	mui.Column(c).Fill().Padding(t.Space(3)).Gap(gap).Children(func() {
-		mui.Row(c).Grow(1).Gap(gap).AlignItems(mui.Stretch).Children(func() {
-			mui.List(c, &w.list, len(w.servers), func(i int) {
-				txt := mui.Text(c, w.title(i)).SingleLine().Padding(t.Space(1), t.Space(2))
-				if _, errs := w.servers[i].server(); len(errs) > 0 {
-					txt.TextColor(t.Danger)
-				}
-			}).Width(180).Padding(t.Space(1)).Radius(t.Radius).Border(1, t.Border).
-				Background(t.Background).Label(T("Servers"))
+	mui.Column(c).Fill().Background(t.Background).Children(func() {
+		mui.Row(c).Grow(1).AlignItems(mui.Stretch).Children(func() {
+			mui.Column(c).Width(240).Background(navBackground(t)).Children(func() {
+				mui.List(c, &w.list, len(w.servers), func(i int) {
+					txt := mui.Text(c, w.title(i)).SingleLine().Padding(t.Space(2), t.Space(3))
+					if _, errs := w.servers[i].server(); len(w.errsFor(w.servers[i], errs)) > 0 {
+						txt.TextColor(t.Danger)
+					}
+				}).Grow(1).Padding(t.Space(1), 0).Label(T("Servers"))
+				// List buttons: two even rows under the list.
+				mui.Column(c).Gap(t.Space(1)).Padding(t.Space(2)).Children(func() {
+					mui.Row(c).Gap(t.Space(1)).Children(func() {
+						if mbtn(c, T("Add"), mui.KeyA, false, 0) {
+							w.sel = w.insertOwn(newEditServer()) // above subscription servers
+						}
+						if mbtn(c, T("Delete"), mui.KeyD, !valid || ro, 0) {
+							w.servers = append(w.servers[:w.sel], w.servers[w.sel+1:]...)
+							w.sel = max(0, min(w.sel, len(w.servers)-1))
+						}
+						if mbtn(c, T("Duplicate"), mui.KeyC, !valid || ro, 0) {
+							d := w.servers[w.sel]
+							w.sel = w.insertOwn(d)
+						}
+					})
+					mui.Row(c).Gap(t.Space(1)).Children(func() {
+						if mbtn(c, T("Move Up"), mui.KeyU, !canUp, 0) {
+							w.servers[w.sel-1], w.servers[w.sel] = w.servers[w.sel], w.servers[w.sel-1]
+							w.sel--
+						}
+						if mbtn(c, T("Move Down"), mui.KeyO, !canDown, 0) {
+							w.servers[w.sel+1], w.servers[w.sel] = w.servers[w.sel], w.servers[w.sel+1]
+							w.sel++
+						}
+					})
+				})
+			})
 
-			// Scroll keeps extra error lines inside the box instead of over the buttons.
-			mui.Scroll(c).Grow(1).Padding(t.Space(2), t.Space(3)).Radius(t.Radius).
-				Border(1, t.Border).Children(func() {
+			// Scroll keeps the fields inside the page above the buttons.
+			mui.Scroll(c).Grow(1).Padding(t.Space(4), t.Space(6)).Children(func() {
 				if !valid {
 					return
 				}
 				e := &w.servers[w.sel]
-				_, errs := e.server()
+				_, all := e.server()
+				errs := w.errsFor(*e, all)
+				mui.Text(c, T("Server")).FontSize(t.Rem(1.45)).FontWeight(300).Padding(0, 0, t.Space(3), 0)
 				if ro {
-					mui.Text(c, fmt.Sprintf(T("ssmygo.fromSub"), subscribe.Host(e.orig.Group))).TextColor(t.TextMuted)
+					mui.Text(c, fmt.Sprintf(T("ssmygo.fromSub"), subscribe.Host(e.orig.Group))).TextColor(t.TextMuted).
+						Padding(0, 0, t.Space(3), 0)
 				}
-				mui.Form(c, func() {
-					mui.Fieldset(c, T("Server"), func() {
-						mui.Field(c, T("Server IP"), func() { mui.TextInput(c, &e.Server) }).Error(errMsg(errs, "server"))
-						mui.Field(c, T("Server Port"), func() { mui.TextInput(c, &e.Port) }).Error(errMsg(errs, "server_port"))
-						mui.Field(c, T("Password"), func() {
-							if in := mui.TextInput(c, &e.Password); !w.showPass {
-								in.Password()
-							}
-						}).Error(errMsg(errs, "password"))
-						mui.Field(c, "", func() { mui.Checkbox(c, &w.showPass, T("Show Password")) })
-						mui.Field(c, T("Encryption"), func() { mui.Select(c, &e.Method, config.Methods) }).Error(errMsg(errs, "method"))
-						mui.Field(c, T("Plugin Program"), func() { mui.TextInput(c, &e.Plugin) })
-						mui.Field(c, T("Plugin Options"), func() { mui.TextInput(c, &e.PluginOpts).Disabled(e.Plugin == "") })
-						mui.Field(c, "", func() {
-							mui.Checkbox(c, &e.NeedArgs, T("Need Plugin Argument")).Disabled(e.Plugin == "")
-						})
-						mui.Field(c, T("Plugin Arguments"), func() {
-							mui.TextInput(c, &e.PluginArgs).Disabled(e.Plugin == "" || !e.NeedArgs)
-						})
-						mui.Field(c, T("Remarks"), func() { mui.TextInput(c, &e.Remarks) })
-						mui.Field(c, T("Timeout(Sec)"), func() { mui.TextInput(c, &e.Timeout) }).Error(errMsg(errs, "timeout"))
-						mui.Field(c, T("Group"), func() { mui.TextInput(c, &e.Group).ReadOnly(true) })
+				field := func(label, err string, build func()) {
+					mui.Field(c, label, build).Error(err).Padding(0, 0, t.Space(3), 0)
+				}
+				mui.Themed(c, fieldTheme(t)).Background(mui.Transparent).MaxWidth(t.Rem(30)).Children(func() {
+					field(T("Server IP"), errMsg(errs, "server"), func() { mui.TextInput(c, &e.Server).Disabled(ro) })
+					field(T("Server Port"), errMsg(errs, "server_port"), func() { mui.TextInput(c, &e.Port).Disabled(ro) })
+					field(T("Password"), errMsg(errs, "password"), func() {
+						in := mui.TextInput(c, &e.Password).Disabled(ro)
+						if !w.showPass {
+							in.Password()
+						}
 					})
-				}).Disabled(ro)
+					mui.Checkbox(c, &w.showPass, T("Show Password")).Padding(0, 0, t.Space(3), 0)
+					field(T("Encryption"), errMsg(errs, "method"), func() { mui.Select(c, &e.Method, config.Methods).Disabled(ro) })
+					field(T("Plugin Program"), "", func() { mui.TextInput(c, &e.Plugin).Disabled(ro) })
+					field(T("Plugin Options"), "", func() { mui.TextInput(c, &e.PluginOpts).Disabled(ro || e.Plugin == "") })
+					mui.Checkbox(c, &e.NeedArgs, T("Need Plugin Argument")).Disabled(ro || e.Plugin == "").Padding(0, 0, t.Space(3), 0)
+					field(T("Plugin Arguments"), "", func() {
+						mui.TextInput(c, &e.PluginArgs).Disabled(ro || e.Plugin == "" || !e.NeedArgs)
+					})
+					field(T("Remarks"), "", func() { mui.TextInput(c, &e.Remarks).Disabled(ro) })
+					field(T("Timeout(Sec)"), errMsg(errs, "timeout"), func() { mui.TextInput(c, &e.Timeout).Disabled(ro) })
+					field(T("Group"), "", func() { mui.TextInput(c, &e.Group).ReadOnly(true) })
+				})
 			})
 		})
 
-		if w.saveErr != "" {
-			mui.Text(c, w.saveErr).TextColor(t.Danger)
-		}
-
-		btnW := t.Rem(7)
-		mui.Grid(c).ColumnTracks(mui.FitContent(), mui.FitContent(), mui.FitContent(), mui.Fr(1), mui.FitContent(), mui.FitContent()).
-			Gap(gap).AlignItems(mui.Center).Children(func() {
-			if mbtn(c, T("Add"), mui.KeyA, false, btnW, 1, 1) {
-				w.sel = w.insertOwn(newEditServer()) // above subscription servers
+		// The window's own settings and its buttons, on a strip below.
+		mui.Column(c).Padding(t.Space(3), t.Space(4)).Gap(t.Space(2)).Background(navBackground(t)).Children(func() {
+			if w.saveErr != "" {
+				mui.Text(c, w.saveErr).TextColor(t.Danger)
 			}
-			if mbtn(c, T("Delete"), mui.KeyD, !valid || ro, btnW, 1, 2) {
-				w.servers = append(w.servers[:w.sel], w.servers[w.sel+1:]...)
-				w.sel = max(0, min(w.sel, len(w.servers)-1))
-			}
-			mui.Text(c, T("Proxy Port")).RowStart(1).ColumnStart(3).JustifySelf(mui.End)
-			// No Field here (it would add a label row); mark it like Field.Error does.
-			port := mui.TextInput(c, &w.port).Label(T("Proxy Port")).RowStart(1).ColumnStart(4).ColumnSpan(-1)
-			if w.portBusy && w.port != w.busyPort {
-				w.portBusy = false // the user changed the port
-			}
-			if msg := w.portErr(); msg != "" {
-				port.Border(1, t.Danger).Tooltip(msg)
-			} else if w.portBusy {
-				port.Border(1, t.Danger).Tooltip(w.saveErr)
-			}
-
-			if mbtn(c, T("Duplicate"), mui.KeyC, !valid || ro, btnW, 2, 1) {
-				d := w.servers[w.sel]
-				w.sel = w.insertOwn(d)
-			}
-			mui.Checkbox(c, &w.portable, T("Portable Mode")).RowStart(2).ColumnStart(4).ColumnSpan(-1)
-
-			if mbtn(c, T("Move Up"), mui.KeyU, !canUp, btnW, 3, 1) {
-				w.servers[w.sel-1], w.servers[w.sel] = w.servers[w.sel], w.servers[w.sel-1]
-				w.sel--
-			}
-			if mbtn(c, T("Move Down"), mui.KeyO, !canDown, btnW, 3, 2) {
-				w.servers[w.sel+1], w.servers[w.sel] = w.servers[w.sel], w.servers[w.sel+1]
-				w.sel++
-			}
-			ok := mui.PrimaryButton(c, T("OK")).MinWidth(btnW).Disabled(!canSave).RowStart(3).ColumnStart(4).JustifySelf(mui.End)
-			if ok.Clicked() || (canSave && c.Shortcut(0, mui.KeyEnter)) {
-				w.apply(true)
-			}
-			if mui.Button(c, T("Cancel")).MinWidth(btnW).RowStart(3).ColumnStart(5).Clicked() {
-				w.close()
-			}
-			if mui.Button(c, T("Apply")).MinWidth(btnW).Disabled(!canSave).RowStart(3).ColumnStart(6).Clicked() {
-				w.apply(false)
-			}
+			mui.Row(c).Gap(t.Space(3)).AlignItems(mui.Center).Children(func() {
+				mui.Text(c, T("Proxy Port"))
+				var port mui.Element
+				mui.Themed(c, fieldTheme(t)).Background(mui.Transparent).Children(func() {
+					port = mui.TextInput(c, &w.port).Label(T("Proxy Port")).Width(t.Rem(6))
+				})
+				if w.portBusy && w.port != w.busyPort {
+					w.portBusy = false // the user changed the port
+				}
+				if msg := w.portErr(); msg != "" {
+					port.Border(2, t.Danger).Tooltip(msg)
+				} else if w.portBusy {
+					port.Border(2, t.Danger).Tooltip(w.saveErr)
+				}
+				mui.Checkbox(c, &w.portable, T("Portable Mode"))
+			})
+			mui.Row(c).Gap(t.Space(2)).Justify(mui.End).Children(func() {
+				btnW := t.Rem(6)
+				ok := mui.PrimaryButton(c, T("OK")).MinWidth(btnW).Disabled(w.saving)
+				if ok.Clicked() || (!w.saving && c.Shortcut(0, mui.KeyEnter)) {
+					w.apply(true)
+				}
+				if mui.Button(c, T("Cancel")).MinWidth(btnW).Clicked() {
+					w.close()
+				}
+				if mui.Button(c, T("Apply")).MinWidth(btnW).Disabled(w.saving).Clicked() {
+					w.apply(false)
+				}
+			})
 		})
 	})
 }
@@ -364,6 +403,9 @@ func (w *ConfigWindow) title(i int) string {
 	e := w.servers[i]
 	if e.Remarks != "" {
 		return e.Remarks
+	}
+	if strings.TrimSpace(e.Server) == "" {
+		return i18n.T("ssmygo.newServer")
 	}
 	return e.Server + ":" + e.Port
 }

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 
 	mui "github.com/egoist/mygo/ui"
@@ -147,23 +148,28 @@ func TestPluginArgsKeptForUnknownFields(t *testing.T) {
 	}
 }
 
+// At the minimum size every button stays inside the window; the fields
+// scroll inside the page above the bottom strip, errors included.
 func TestFitsAt582x620(t *testing.T) {
-	_, _, tt := newWin(sample(), nil)
-	group, ok1 := tt.Find("Group")
-	add, ok2 := tt.Find("Add")
-	if !ok1 || !ok2 || group.Y+group.H > add.Y {
-		t.Fatalf("Group %+v overlaps Add %+v", group, add)
+	check := func(tt *mui.Tester) {
+		t.Helper()
+		ok, okFound := tt.Find("OK")
+		add, addFound := tt.Find("Add")
+		head, headFound := tt.Find("Server")
+		if !okFound || !addFound || !headFound {
+			t.Fatalf("missing OK %v Add %v header %v", okFound, addFound, headFound)
+		}
+		if ok.Y+ok.H > 620 || add.Y+add.H > 620 || head.Y > ok.Y {
+			t.Fatalf("OK %+v Add %+v header %+v", ok, add, head)
+		}
 	}
-	// three visible errors must stay inside the group box (scroll), not over the buttons
+	_, _, tt := newWin(sample(), nil)
+	check(tt)
 	w, _, tt2 := newWin(sample(), nil)
 	w.sel = 1
 	w.servers[1].Server, w.servers[1].Port = "", "0"
 	tt2.Frame()
-	add2, _ := tt2.Find("Add")
-	box, ok := tt2.Find("Server")
-	if !ok || box.Y > add2.Y {
-		t.Fatalf("layout broken with errors: box %+v add %+v", box, add2)
-	}
+	check(tt2)
 }
 
 func TestSnapshots(t *testing.T) {
@@ -372,5 +378,30 @@ func TestConfigWinHandGroupedEditable(t *testing.T) {
 	tt.Frame()
 	if len(w.servers) != n-1 {
 		t.Fatal("hand-grouped server cannot be deleted")
+	}
+}
+
+// Win10 UI: a new server is listed as "New server", not ":".
+func TestNewServerTitle(t *testing.T) {
+	_, _, tt := newWin(sample(), nil)
+	tt.Click("Add")
+	tt.Frame()
+	if !tt.HasText("New server") || slices.Contains(tt.Texts(), ":") {
+		t.Fatalf("texts %q", tt.Texts())
+	}
+}
+
+// Win10 UI: a new server's errors wait until OK, as Windows forms do.
+func TestNewServerErrorsWaitForOK(t *testing.T) {
+	_, s, tt := newWin(sample(), nil)
+	tt.Click("Add")
+	tt.Frame()
+	if tt.HasText("Required.") {
+		t.Fatal("errors shown before the user did anything")
+	}
+	tt.Click("OK")
+	tt.Frame()
+	if !tt.HasText("Required.") || s.calls != 0 {
+		t.Fatalf("after OK: texts %q, saves %d", tt.Texts(), s.calls)
 	}
 }

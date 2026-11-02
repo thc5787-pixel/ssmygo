@@ -26,11 +26,11 @@ var hotkeyLabels = []string{"resx.ToggleSystemProxy", "resx.ToggleProxyMode", "r
 
 // HotkeyWindow is the Hotkeys window (original HotkeysView, 320×260).
 type HotkeyWindow struct {
-	vals    [6]string // original format, as "Ctrl+Shift+Q"
+	vals [6]string // original format, as "Ctrl+Shift+Q"
 	// kept: a configured value ssmygo cannot record or register (e.g.
 	// "Ctrl+Snapshot"), shown empty but written back unless the user
 	// changes that row.
-	kept [6]string
+	kept    [6]string
 	startup bool
 	status  [6]hkStatus
 	tips    [6]string

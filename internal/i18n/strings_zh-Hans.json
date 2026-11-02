@@ -116,6 +116,7 @@
   "ssmygo.hotkeyTaken": "无法注册：该组合键可能已被其他程序占用。",
   "ssmygo.imported": "已导入 %d 个，失败 %d 个。",
   "ssmygo.logUnavailable": "日志文件不可用：%s",
+  "ssmygo.newServer": "新服务器",
   "ssmygo.noLinks": "剪贴板中没有找到 ss:// 链接。",
   "ssmygo.noServer": "请先添加服务器。",
   "ssmygo.noStrategyMembers": "没有可用于策略的服务器（使用插件的服务器不参与），使用当前选中的服务器。",
