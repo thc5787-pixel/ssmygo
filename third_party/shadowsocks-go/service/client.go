@@ -538,13 +538,27 @@ func (c *ClientConfig) AddClient(
 		}
 
 	default:
-		// ssmygo patch A: registered protocols (TCP only).
+		// ssmygo patch A: registered protocols; UDP via patch A2.
 		factory, ok := lookupClientFactory(c.Protocol)
 		if !ok {
 			return fmt.Errorf("unknown protocol: %q", c.Protocol)
 		}
 		if c.EnableUDP {
-			return fmt.Errorf("protocol %q: UDP not supported", c.Protocol)
+			udpFactory, ok := lookupUDPClientFactory(c.Protocol)
+			if !ok {
+				return fmt.Errorf("protocol %q: UDP not supported", c.Protocol)
+			}
+			udpClient, err := udpFactory(c, UDPEnv{
+				Addr:         udpAddr,
+				Preference:   c.AddressFamilyPreference,
+				Resolver:     resolver,
+				MTU:          c.MTU,
+				SocketConfig: c.udpSocketConfig(socketConfigCache),
+			})
+			if err != nil {
+				return err
+			}
+			udpClientByName[c.Name] = udpClient
 		}
 		if c.EnableTCP {
 			innerClient, err := c.innerStreamClient(streamClientByName, socketConfigCache, resolver, ipACL)

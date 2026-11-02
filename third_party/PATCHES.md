@@ -55,3 +55,19 @@ Diff vs previous state:
      .../shadowsocks-go/service/registry_test.go        |  8 ++---
      3 files changed, 39 insertions(+), 11 deletions(-)
     third_party/shadowsocks-go/service/dialer_test.go (new)
+
+## Patch A2 — UDP for registered client protocols
+
+Purpose: legacy AEAD UDP (P1-A2).
+
+- `service/registry.go`: `UDPEnv`, `UDPClientFactory`, `RegisterUDPClientProtocol`.
+- `service/client.go`: the registry branch builds the UDP client from the
+  UDP factory when `enableUDP` is set (still "UDP not supported" without one).
+
+Tests: `service/registry_test.go`.
+
+Diff vs previous state:
+     third_party/shadowsocks-go/service/client.go       | 18 ++++++++--
+     third_party/shadowsocks-go/service/registry.go     | 36 +++++++++++++++++++
+     .../shadowsocks-go/service/registry_test.go        | 42 ++++++++++++++++++++++
+     3 files changed, 94 insertions(+), 2 deletions(-)

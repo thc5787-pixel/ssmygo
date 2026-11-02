@@ -15,6 +15,7 @@ import (
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/ssnone"
 	"github.com/database64128/shadowsocks-go/tslog"
+	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
 func testManager(t *testing.T, js string) (*Manager, error) {
@@ -155,4 +156,45 @@ func TestDuplicateRegisterPanics(t *testing.T) {
 		}
 	}()
 	RegisterClientProtocol("test-dup", f)
+}
+
+// ssmygo patch A2 tests.
+
+type fakeUDP struct{ env UDPEnv }
+
+func (f *fakeUDP) Info() zerocopy.UDPClientInfo { return zerocopy.UDPClientInfo{Name: "fake"} }
+func (f *fakeUDP) NewSession(context.Context) (zerocopy.UDPClientSessionInfo, zerocopy.UDPClientSession, error) {
+	return zerocopy.UDPClientSessionInfo{}, zerocopy.UDPClientSession{}, nil
+}
+
+func TestRegisterUDPClientProtocol(t *testing.T) {
+	var got UDPEnv
+	RegisterClientProtocol("test-udp", func(c *ClientConfig, inner netio.StreamClient) (netio.StreamClient, error) {
+		cfg := ssnone.StreamClientConfig{Name: c.Name, InnerClient: inner}
+		return cfg.NewStreamClient(), nil
+	})
+	RegisterUDPClientProtocol("test-udp", func(c *ClientConfig, env UDPEnv) (zerocopy.UDPClient, error) {
+		got = env
+		return &fakeUDP{env}, nil
+	})
+	m, err := testManager(t, `{"servers":[{"name":"s","protocol":"socks5","tcpListeners":[{"network":"tcp","address":"127.0.0.1:0"}]}],
+		"clients":[{"name":"x","protocol":"test-udp","tcpAddress":"127.0.0.1:1","udpAddress":"127.0.0.1:2","enableTCP":true,"enableUDP":true,"mtu":1500}]}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Close()
+	if got.Addr.String() != "127.0.0.1:2" || got.MTU != 1500 {
+		t.Fatalf("env %+v", got)
+	}
+}
+
+func TestDuplicateUDPRegisterPanics(t *testing.T) {
+	f := func(c *ClientConfig, env UDPEnv) (zerocopy.UDPClient, error) { return nil, nil }
+	RegisterUDPClientProtocol("test-udp-dup", f)
+	defer func() {
+		if recover() == nil {
+			t.Fatal("no panic")
+		}
+	}()
+	RegisterUDPClientProtocol("test-udp-dup", f)
 }
