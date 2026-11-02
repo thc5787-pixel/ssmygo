@@ -453,7 +453,8 @@ func OpenConfigWindow(ctrl *controller.Controller) {
 	w := NewConfigWindow(ctrl.SaveServers, ctrl.Config())
 	opts := mygo.WindowOptions{
 		Title: i18n.T("Edit Servers"), Width: 582, Height: 620, MinWidth: 582, MinHeight: 620,
-		Content: mui.View(w.View),
+		DisableMaximize: true, // a dialog, as the original's ConfigForm
+		Content:         mui.View(w.View),
 	}
 	// The size and position the user left it at (zero: default, centred).
 	b := ctrl.ConfigWindowBounds()
@@ -463,13 +464,12 @@ func OpenConfigWindow(ctrl *controller.Controller) {
 	if b.Left != 0 || b.Top != 0 {
 		opts.X, opts.Y = b.Left, b.Top
 	}
-	opts.Maximized = b.Maximized
 	win := mygo.NewWindow(opts)
 	win.OnClose(func(*mygo.CloseEvent) {
 		nb := b
-		nb.Maximized = win.IsMaximized()
+		nb.Maximized = false // the window cannot be maximized
 		// A minimized window's bounds are Windows' parking spot: keep the last.
-		if !nb.Maximized && !win.IsMinimized() {
+		if !win.IsMinimized() {
 			r := win.Bounds()
 			nb.Left, nb.Top, nb.Width, nb.Height = r.X, r.Y, r.Width, r.Height
 		}

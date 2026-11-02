@@ -163,7 +163,8 @@ func OpenForwardWindow(ctrl *controller.Controller) {
 	w := NewForwardWindow(ctrl.SetForwardProxy, ctrl.Config().Proxy)
 	win := mygo.NewWindow(mygo.WindowOptions{
 		Title: i18n.T("resx.ForwardProxy"), Width: 280, Height: 400, MinWidth: 280, MinHeight: 400,
-		Content: mui.View(w.View),
+		DisableMaximize: true,
+		Content:         mui.View(w.View),
 	})
 	w.run = func(work func() error, done func(error)) {
 		runActionWith(ctrl.TrustPlugin, nil, work, func(err error) { win.Update(func() { done(err) }) })

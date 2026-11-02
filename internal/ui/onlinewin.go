@@ -212,7 +212,7 @@ func OpenOnlineConfigWindow(ctrl *controller.Controller) {
 	}
 	v := newOnlineView(ctrl)
 	win := mygo.NewWindow(mygo.WindowOptions{Title: wpf("resx.OnlineConfigDelivery"), Width: 480, Height: 510,
-		MinWidth: 400, MinHeight: 300, Content: mui.View(v.View)})
+		MinWidth: 400, MinHeight: 300, DisableMaximize: true, Content: mui.View(v.View)})
 	v.run = func(work func() error, done func(error)) {
 		runActionWith(ctrl.TrustPlugin, nil, work, func(err error) { win.Update(func() { done(err) }) })
 	}

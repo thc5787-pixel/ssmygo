@@ -262,7 +262,8 @@ func OpenHotkeysWindow(ctrl *controller.Controller) {
 	w := NewHotkeyWindow(ctrl.Hotkeys(), hotkeys.registered, ctrl.SaveHotkeys, reg)
 	win := mygo.NewWindow(mygo.WindowOptions{
 		Title: wpf("resx.Hotkeys"), Width: 320, Height: 260, MinWidth: 320, MinHeight: 260,
-		Content: mui.View(w.View),
+		DisableMaximize: true,
+		Content:         mui.View(w.View),
 	})
 	w.OnClose(win.Close)
 	win.OnClosed(func() { hotkeyWin = nil })

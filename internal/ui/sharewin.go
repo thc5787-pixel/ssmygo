@@ -84,7 +84,7 @@ func OpenShareWindow(ctrl *controller.Controller) {
 	v := newShareView(ctrl.Config())
 	v.copy = func(s string) { mygo.Clipboard.WriteText(s) }
 	win := mygo.NewWindow(mygo.WindowOptions{Title: wpf("resx.ServerSharing"), Width: 660, Height: 400,
-		MinWidth: 660, MinHeight: 400, Content: mui.View(v.View)})
+		MinWidth: 660, MinHeight: 400, DisableMaximize: true, Content: mui.View(v.View)})
 	win.OnClosed(func() { shareWin = nil })
 	shareWin = win
 }
