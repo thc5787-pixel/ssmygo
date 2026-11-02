@@ -13,7 +13,7 @@ import (
 	"github.com/thc5787/ssmygo/internal/traffic"
 )
 
-//go:generate go run ../../tools/genicons -svg ../../assets/shadowsocks.svg -app ../../resources/icon.png -tray icons
+//go:generate go run ../../tools/genicons -svg ../../assets/shadowsocks.svg -app ../../assets/icon.png -tray icons
 
 //go:embed icons/tray-*.png
 var trayIcons embed.FS

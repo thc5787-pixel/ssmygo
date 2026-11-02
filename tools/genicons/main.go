@@ -34,7 +34,7 @@ var trays = []tray{
 
 func main() {
 	svgPath := flag.String("svg", "assets/shadowsocks.svg", "source SVG")
-	app := flag.String("app", "resources/icon.png", "app icon output (1024×1024)")
+	app := flag.String("app", "assets/icon.png", "app icon output (1024×1024)")
 	trayDir := flag.String("tray", "internal/ui/icons", "tray icon output directory (32×32)")
 	flag.Parse()
 

@@ -18,12 +18,18 @@ import (
 	"github.com/thc5787/ssmygo/internal/ui"
 )
 
-// version matches mygo.json; release builds may override it with -ldflags -X.
-var version = "0.1.0"
+// version overrides the version mygo build links in from mygo.json
+// (build.ps1 -Version sets it with -ldflags -X); a plain go build has neither.
+var version = ""
 
 func main() {
 	mygo.App.SetName("ssmygo")
-	mygo.App.SetVersion(version)
+	if version != "" {
+		mygo.App.SetVersion(version)
+	}
+	if version = mygo.App.Version(); version == "" {
+		version = "dev"
+	}
 	if !mygo.App.RequestSingleInstanceLock() {
 		return // the running instance opens Edit Servers (OnSecondInstance)
 	}

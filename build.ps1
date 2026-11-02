@@ -67,21 +67,22 @@ if (-not $SkipTests) {
 }
 
 New-Item -ItemType Directory -Force -Path build | Out-Null
-$ldflags = "-s -w -H=windowsgui -X main.version=$Version"
+# mygo build (MyGo's own builder, a Go tool in go.mod) embeds the icon from
+# mygo.json ("icon"), the manifest and the version information, and links
+# the version; MYGO_LDFLAGS carries an explicit -Version.
+$env:MYGO_LDFLAGS = "-X main.version=$Version"
 $archs = if ($Arch -eq 'all') { @('amd64', 'arm64') } else { @($Arch) }
 
 foreach ($a in $archs) {
     $name = if ($Arch -eq 'all') { "ssmygo-$a.exe" } else { 'ssmygo.exe' }
     $target = Join-Path 'build' $name
-    $new = "$target.new"
+    $out = Join-Path 'build' "windows-$a"
+    $new = Join-Path $out 'ssmygo.exe'
 
-    Step "build $name (windows/$a, version $Version)"
-    $env:GOOS = 'windows'
-    $env:GOARCH = $a
-    go build -trimpath -ldflags $ldflags -o $new ./cmd/ssmygo
-    $code = $LASTEXITCODE
-    Remove-Item Env:GOOS, Env:GOARCH -ErrorAction SilentlyContinue
-    if ($code -ne 0) { Fail "go build for $a failed." }
+    Step "build $name (windows/$a, version $Version, with icon)"
+    Remove-Item -LiteralPath $out -Recurse -Force -ErrorAction SilentlyContinue
+    go tool mygo build -platform "windows/$a" -skip-installer
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $new)) { Fail "mygo build for $a failed." }
 
     # Put the new exe in place, beside a running copy if there is one.
     if (Test-Path -LiteralPath $target) {
@@ -97,6 +98,7 @@ foreach ($a in $archs) {
         Move-Item -LiteralPath $target -Destination $old
     }
     Move-Item -LiteralPath $new -Destination $target
+    Remove-Item -LiteralPath $out -Recurse -Force -ErrorAction SilentlyContinue
 
     $mb = '{0:N2}' -f ((Get-Item -LiteralPath $target).Length / 1MB)
     Write-Host "    $target  $mb MB" -ForegroundColor Green

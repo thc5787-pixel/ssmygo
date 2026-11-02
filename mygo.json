@@ -2,6 +2,7 @@
   "name": "ssmygo",
   "identifier": "dev.ssmygo",
   "version": "0.1.0",
-  "icon": "resources/icon.png",
-  "out": "build"
+  "icon": "assets/icon.png",
+  "out": "build",
+  "main": "./cmd/ssmygo"
 }
