@@ -322,7 +322,7 @@ func OpenLogWindow(ctrl *controller.Controller) {
 	l.poll()
 	v := l.v
 	opts := mygo.WindowOptions{Title: plain(i18n.T("Log Viewer")), Width: v.Width, Height: v.Height, MinWidth: 400, MinHeight: 240,
-		AlwaysOnTop: v.TopMost, Maximized: v.Maximized, Content: mui.View(l.View)}
+		AlwaysOnTop: v.TopMost, DisableMaximize: true, Content: mui.View(l.View)}
 	if v.Left != 0 || v.Top != 0 {
 		opts.X, opts.Y = v.Left, v.Top
 	}
@@ -355,10 +355,10 @@ func OpenLogWindow(ctrl *controller.Controller) {
 		win.Update(func() { l.setShowPlugin(s.ShowPluginOutput); refreshMenu() })
 	})
 	win.OnClose(func(*mygo.CloseEvent) {
-		l.v.Maximized = win.IsMaximized()
+		l.v.Maximized = false // the window cannot be maximized
 		// A minimized window's bounds are Windows' parking spot (-32000):
 		// keep the last saved position instead.
-		if !l.v.Maximized && !win.IsMinimized() {
+		if !win.IsMinimized() {
 			b := win.Bounds()
 			l.v.Left, l.v.Top, l.v.Width, l.v.Height = b.X, b.Y, b.Width, b.Height
 		}
