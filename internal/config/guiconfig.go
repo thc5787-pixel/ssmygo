@@ -40,6 +40,7 @@ type Config struct {
 	TrustedPlugins       []TrustedPlugin `json:"ssmygoTrustedPlugins,omitempty"`
 	LogViewer            LogViewer       `json:"logViewer"`
 	ShowPluginOutput     bool            `json:"showPluginOutput"`
+	OnlineConfigSource   []string        `json:"onlineConfigSource"`
 
 	extra map[string]json.RawMessage
 }
@@ -60,6 +61,7 @@ func Default() *Config {
 		GeositeProxiedGroups: []string{"geolocation-!cn"},
 		Proxy:                ForwardProxy{ProxyTimeout: DefaultProxyTimeout},
 		LogViewer:            DefaultLogViewer(),
+		OnlineConfigSource:   []string{},
 	}
 }
 
@@ -107,6 +109,9 @@ func (c *Config) Save(path string) error {
 	f := configFields(*c)
 	if f.Configs == nil {
 		f.Configs = []Server{}
+	}
+	if f.OnlineConfigSource == nil {
+		f.OnlineConfigSource = []string{} // the original expects a list
 	}
 	b, err := marshalWithExtra(f, c.extra)
 	if err != nil {
