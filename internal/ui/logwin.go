@@ -321,12 +321,9 @@ func OpenLogWindow(ctrl *controller.Controller) {
 	l := newLogView(ctrl)
 	l.poll()
 	v := l.v
-	opts := mygo.WindowOptions{Title: plain(i18n.T("Log Viewer")), Width: v.Width, Height: v.Height, MinWidth: 400, MinHeight: 240,
-		AlwaysOnTop: v.TopMost, Maximized: v.Maximized, Content: mui.View(l.View)} // the only window that can maximize
-	if v.Left != 0 || v.Top != 0 {
-		opts.X, opts.Y = v.Left, v.Top
-	}
-	win := mygo.NewWindow(opts)
+	win := mygo.NewWindow(mygo.WindowOptions{Title: plain(i18n.T("Log Viewer")), Width: 640, Height: 420, MinWidth: 400, MinHeight: 240,
+		StateKey:    "logViewer",                           // MyGo keeps its place, size and maximized state
+		AlwaysOnTop: v.TopMost, Content: mui.View(l.View)}) // the only window that can maximize
 	l.onTopMost = win.SetAlwaysOnTop
 	refreshMenu := func() {
 		win.SetMenu(logMenu(l, logMenuActions{
@@ -354,16 +351,7 @@ func OpenLogWindow(ctrl *controller.Controller) {
 	offState := ctrl.Subscribe(func(s controller.State) {
 		win.Update(func() { l.setShowPlugin(s.ShowPluginOutput); refreshMenu() })
 	})
-	win.OnClose(func(*mygo.CloseEvent) {
-		l.v.Maximized = win.IsMaximized()
-		// Maximized bounds are the screen's and a minimized window's are
-		// Windows' parking spot (-32000): keep the last saved ones instead.
-		if !l.v.Maximized && !win.IsMinimized() {
-			b := win.Bounds()
-			l.v.Left, l.v.Top, l.v.Width, l.v.Height = b.X, b.Y, b.Width, b.Height
-		}
-		l.close()
-	})
+	win.OnClose(func(*mygo.CloseEvent) { l.close() })
 	win.OnClosed(func() {
 		close(stop)
 		offTraffic()

@@ -42,7 +42,9 @@ type Config struct {
 	Proxy                ForwardProxy    `json:"proxy"`
 	TrustedPlugins       []TrustedPlugin `json:"ssmygoTrustedPlugins,omitempty"`
 	LogViewer            LogViewer       `json:"logViewer"`
-	ConfigWindow         WindowBounds    `json:"ssmygoConfigWindow,omitzero"`
+	// WindowStates are the windows' last positions and sizes, by
+	// WindowOptions.StateKey ("logViewer", "editServers").
+	WindowStates map[string]WindowState `json:"ssmygoWindows,omitempty"`
 	// Language is the UI language: "" follows the system, else "en" or
 	// "zh-Hans" (tray ▸ Language).
 	Language           string       `json:"ssmygoLanguage,omitempty"`
@@ -94,6 +96,7 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("%w: %v", ErrCorrupt, err)
 	}
 	c := Config(f)
+	delete(extra, "ssmygoConfigWindow") // now in WindowStates (1.0.0 wrote it)
 	c.extra = extra
 	if c.Configs == nil {
 		c.Configs = []Server{}
@@ -163,6 +166,7 @@ func (c *Config) Clone() *Config {
 	d.GeositeDirectGroups = slices.Clone(c.GeositeDirectGroups)
 	d.GeositeProxiedGroups = slices.Clone(c.GeositeProxiedGroups)
 	d.TrustedPlugins = slices.Clone(c.TrustedPlugins)
+	d.WindowStates = maps.Clone(c.WindowStates)
 	d.Proxy.extra = maps.Clone(c.Proxy.extra)
 	d.Hotkey.extra = maps.Clone(c.Hotkey.extra)
 	d.extra = maps.Clone(c.extra)
