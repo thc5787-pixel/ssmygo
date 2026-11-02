@@ -64,7 +64,7 @@ func TestTrayIconColors(t *testing.T) {
 }
 
 func TestAppIcon(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join("..", "..", "resources", "icon.png"))
+	b, err := os.ReadFile(filepath.Join("..", "..", "assets", "icon.png"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestGenerateUpToDate(t *testing.T) {
 	if b, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("%v\n%s", err, b)
 	}
-	pairs := map[string]string{filepath.Join(out, "icon.png"): filepath.Join("..", "..", "resources", "icon.png")}
+	pairs := map[string]string{filepath.Join(out, "icon.png"): filepath.Join("..", "..", "assets", "icon.png")}
 	ents, _ := filepath.Glob(filepath.Join("icons", "tray-*.png"))
 	if len(ents) != 6 {
 		t.Fatalf("committed tray icons: %v", ents)
