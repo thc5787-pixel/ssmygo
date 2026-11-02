@@ -90,3 +90,22 @@ func (c *Controller) SetShowPluginOutput(on bool) error {
 	}
 	return nil
 }
+
+// ConfigWindowBounds is the Edit Servers window's last size and position.
+func (c *Controller) ConfigWindowBounds() config.WindowBounds {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.cfg.ConfigWindow
+}
+
+// SaveConfigWindowBounds stores the Edit Servers window's size and position
+// and saves gui-config.json.
+func (c *Controller) SaveConfigWindowBounds(b config.WindowBounds) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cfg.ConfigWindow = b
+	if err := c.save(); err != nil {
+		return &SaveError{Err: err}
+	}
+	return nil
+}

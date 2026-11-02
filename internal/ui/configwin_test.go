@@ -405,3 +405,32 @@ func TestNewServerErrorsWaitForOK(t *testing.T) {
 		t.Fatalf("after OK: texts %q, saves %d", tt.Texts(), s.calls)
 	}
 }
+
+// With no servers the window opens on a new server, its fields showing (as
+// the original), not on an empty page until Add.
+func TestEmptyConfigShowsNewServer(t *testing.T) {
+	cfg := sample()
+	cfg.Configs = nil
+	w, s, tt := newWin(cfg, nil)
+	if !tt.HasText("New server") || !tt.HasText("Server IP") {
+		t.Fatalf("texts %q", tt.Texts())
+	}
+	// Cancel saves nothing; the placeholder is not a change by itself.
+	if len(w.servers) != 1 || s.calls != 0 {
+		t.Fatalf("servers %d saves %d", len(w.servers), s.calls)
+	}
+}
+
+// The untouched new server the window opened on is not saved and does not
+// block OK (e.g. only the proxy port was changed).
+func TestPlaceholderDoesNotBlockOK(t *testing.T) {
+	cfg := sample()
+	cfg.Configs = nil
+	w, s, tt := newWin(cfg, nil)
+	w.port = "2080"
+	tt.Frame()
+	tt.Click("OK")
+	if s.calls != 1 || s.port != 2080 || len(s.servers) != 0 {
+		t.Fatalf("saves %d port %d servers %d", s.calls, s.port, len(s.servers))
+	}
+}

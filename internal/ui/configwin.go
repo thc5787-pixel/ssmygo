@@ -168,6 +168,9 @@ func sourcesOf(cfg *config.Config) map[string]bool {
 // AppendServers adds servers imported while the window is open, so OK does
 // not drop them (deferred #7). They are already saved, so not "new".
 func (w *ConfigWindow) AppendServers(servers []config.Server) {
+	if len(servers) > 0 && w.untouchedPlaceholder() {
+		w.servers, w.sel = nil, 0 // imported servers replace the empty new one
+	}
 	for _, s := range servers {
 		w.insertOwn(fromServer(s)) // above subscription servers
 	}
@@ -180,10 +183,21 @@ func NewConfigWindow(save SaveFunc, initial *config.Config) *ConfigWindow {
 	for _, s := range initial.Configs {
 		w.servers = append(w.servers, fromServer(s))
 	}
+	if len(w.servers) == 0 {
+		// Nothing to edit yet: open on a new server, its fields showing (as
+		// the original), instead of an empty page until Add.
+		w.servers = []editServer{newEditServer()}
+	}
 	if w.sel < 0 || w.sel >= len(w.servers) {
 		w.sel = 0
 	}
 	return w
+}
+
+// untouchedPlaceholder: the window holds only the new server it opened on,
+// and the user has not typed into it.
+func (w *ConfigWindow) untouchedPlaceholder() bool {
+	return len(w.servers) == 1 && w.servers[0].isNew && w.servers[0].formFields == w.servers[0].base
 }
 
 // OnClose is called after OK, Cancel or Esc; the owner closes the window.
@@ -209,6 +223,9 @@ func (w *ConfigWindow) valid() bool {
 	if w.portErr() != "" {
 		return false
 	}
+	if w.untouchedPlaceholder() {
+		return true // nothing entered: saved as no servers
+	}
 	for _, e := range w.servers {
 		if !e.dirty() {
 			continue
@@ -230,9 +247,11 @@ func (w *ConfigWindow) apply(closeAfter bool) {
 		w.attempted = true // show every error now
 		return
 	}
-	servers := make([]config.Server, len(w.servers))
-	for i, e := range w.servers {
-		servers[i] = e.result()
+	servers := make([]config.Server, 0, len(w.servers))
+	if !w.untouchedPlaceholder() {
+		for _, e := range w.servers {
+			servers = append(servers, e.result())
+		}
 	}
 	port, _ := strconv.Atoi(strings.TrimSpace(w.port))
 	portText, sel, portable := w.port, w.sel, w.portable // as of OK, not of later clicks (Review #5)
@@ -425,9 +444,31 @@ func OpenConfigWindow(ctrl *controller.Controller) {
 		return
 	}
 	w := NewConfigWindow(ctrl.SaveServers, ctrl.Config())
-	win := mygo.NewWindow(mygo.WindowOptions{
+	opts := mygo.WindowOptions{
 		Title: i18n.T("Edit Servers"), Width: 582, Height: 620, MinWidth: 582, MinHeight: 620,
 		Content: mui.View(w.View),
+	}
+	// The size and position the user left it at (zero: default, centred).
+	b := ctrl.ConfigWindowBounds()
+	if b.Width >= opts.MinWidth && b.Height >= opts.MinHeight {
+		opts.Width, opts.Height = b.Width, b.Height
+	}
+	if b.Left != 0 || b.Top != 0 {
+		opts.X, opts.Y = b.Left, b.Top
+	}
+	opts.Maximized = b.Maximized
+	win := mygo.NewWindow(opts)
+	win.OnClose(func(*mygo.CloseEvent) {
+		nb := b
+		nb.Maximized = win.IsMaximized()
+		// A minimized window's bounds are Windows' parking spot: keep the last.
+		if !nb.Maximized && !win.IsMinimized() {
+			r := win.Bounds()
+			nb.Left, nb.Top, nb.Width, nb.Height = r.X, r.Y, r.Width, r.Height
+		}
+		if nb != b {
+			go ctrl.SaveConfigWindowBounds(nb) // the controller lock may be held by a save
+		}
 	})
 	// Save off the main thread (a plugin may take seconds to start) and ask
 	// before running an untrusted plugin; results return on the main thread.

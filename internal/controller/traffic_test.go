@@ -102,3 +102,20 @@ func TestSetShowPluginOutput(t *testing.T) {
 		t.Fatal("no log path")
 	}
 }
+
+func TestSaveConfigWindowBounds(t *testing.T) {
+	e := newEnv(t)
+	e.writeConfig(nil)
+	c := e.start()
+	b := config.WindowBounds{Width: 900, Height: 720, Left: 40, Top: 30}
+	if err := c.SaveConfigWindowBounds(b); err != nil {
+		t.Fatal(err)
+	}
+	if c.ConfigWindowBounds() != b {
+		t.Fatal("not kept")
+	}
+	cfg, _ := config.Load(e.deps().Paths.Config())
+	if cfg.ConfigWindow != b {
+		t.Fatalf("saved %+v", cfg.ConfigWindow)
+	}
+}

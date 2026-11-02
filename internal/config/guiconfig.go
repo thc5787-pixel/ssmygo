@@ -42,6 +42,7 @@ type Config struct {
 	Proxy                ForwardProxy    `json:"proxy"`
 	TrustedPlugins       []TrustedPlugin `json:"ssmygoTrustedPlugins,omitempty"`
 	LogViewer            LogViewer       `json:"logViewer"`
+	ConfigWindow         WindowBounds    `json:"ssmygoConfigWindow,omitzero"`
 	ShowPluginOutput     bool            `json:"showPluginOutput"`
 	OnlineConfigSource   []string        `json:"onlineConfigSource"`
 	Strategy             StrategyID      `json:"strategy"`
