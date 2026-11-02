@@ -184,12 +184,13 @@ func (w *HotkeyWindow) View(c *mui.Context) {
 		w.close()
 		return
 	}
+	fill, border := fieldColors(t)
 	mui.Column(c).Fill().Padding(t.Space(3)).Gap(t.Space(1)).Children(func() {
 		for i, key := range hotkeyLabels {
 			mui.Row(c).Gap(t.Space(2)).AlignItems(mui.Center).Children(func() {
 				mui.Text(c, wpf(key)).SingleLine().Width(t.Rem(11))
 				field := mui.Row(c.Key(key)).Grow(1).Height(t.Rem(1.6)).Padding(0, t.Space(2)).AlignItems(mui.Center).
-					Border(1, t.Border).Radius(t.Radius).Background(t.Background).Focusable().
+					Border(1, border).Radius(t.Radius).Background(fill).Focusable().
 					FocusBind(&w.focus, i+1).Label(wpf(key)).
 					HandleInput(func(ev mui.InputEvent) bool { return w.record(i, ev) })
 				if field.Focused() {
@@ -218,7 +219,7 @@ func (w *HotkeyWindow) View(c *mui.Context) {
 				w.registerShown(w.config(false))
 			}
 			mui.Box(c).Grow(1)
-			if mui.PrimaryButton(c, wpf("resx.saveButton_Content")).MinWidth(t.Rem(4)).Clicked() {
+			if defaultButton(c, wpf("resx.saveButton_Content")).MinWidth(t.Rem(4)).Clicked() {
 				w.apply()
 			}
 			if mui.Button(c, wpf("resx.cancelButton_Content")).MinWidth(t.Rem(4)).Clicked() {

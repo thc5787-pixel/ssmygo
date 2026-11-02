@@ -13,7 +13,7 @@ import (
 func newFwd(initial config.ForwardProxy) (*ForwardWindow, *[]config.ForwardProxy, *mui.Tester) {
 	var saved []config.ForwardProxy
 	w := NewForwardWindow(func(p config.ForwardProxy) error { saved = append(saved, p); return nil }, initial)
-	return w, &saved, mui.NewTester(w.View, 320, 520)
+	return w, &saved, mui.NewTester(w.View, 280, 400)
 }
 
 func TestForwardWindowFields(t *testing.T) {

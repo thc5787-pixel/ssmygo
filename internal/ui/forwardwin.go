@@ -11,7 +11,7 @@ import (
 	"github.com/thc5787/ssmygo/internal/i18n"
 )
 
-// ForwardWindow is the Forward Proxy window (original ForwardProxyView, 280×400; 320×520 here for labels above fields).
+// ForwardWindow is the Forward Proxy window (original ForwardProxyView, 280×400).
 type ForwardWindow struct {
 	save    func(config.ForwardProxy) error
 	typ     string // "none", "socks5", "http"
@@ -102,14 +102,16 @@ func (w *ForwardWindow) View(c *mui.Context) {
 				mui.Radio(c, &w.typ, "http", T("HTTP"))
 			}).Label(T("resx.Type"))
 			fields(c, func() {
-				mui.Fieldset(c, T("resx.Details"), func() {
-					mui.Field(c, T("resx.Address"), func() { mui.TextInput(c, &w.addr).Disabled(off) }).Error(errMsg(errs, "proxyServer"))
-					mui.Field(c, T("resx.Port"), func() { mui.TextInput(c, &w.port).Disabled(off) }).Error(errMsg(errs, "proxyPort"))
-					mui.Field(c, T("resx.Timeout"), func() { mui.TextInput(c, &w.timeout).Disabled(off) }).Error(errMsg(errs, "proxyTimeout"))
-				})
-				mui.Fieldset(c, T("resx.CredentialsOptional"), func() {
-					mui.Field(c, T("resx.Username"), func() { mui.TextInput(c, &w.user).Disabled(off) }).Error(errMsg(errs, "authUser"))
-					mui.Field(c, T("Password"), func() { mui.TextInput(c, &w.pwd).Password().Disabled(off) }).Error(errMsg(errs, "authPwd"))
+				mui.Form(c, func() {
+					mui.Fieldset(c, T("resx.Details"), func() {
+						mui.Field(c, T("resx.Address"), func() { mui.TextInput(c, &w.addr).Disabled(off) }).Error(errMsg(errs, "proxyServer"))
+						mui.Field(c, T("resx.Port"), func() { mui.TextInput(c, &w.port).Disabled(off) }).Error(errMsg(errs, "proxyPort"))
+						mui.Field(c, T("resx.Timeout"), func() { mui.TextInput(c, &w.timeout).Disabled(off) }).Error(errMsg(errs, "proxyTimeout"))
+					})
+					mui.Fieldset(c, T("resx.CredentialsOptional"), func() {
+						mui.Field(c, T("resx.Username"), func() { mui.TextInput(c, &w.user).Disabled(off) }).Error(errMsg(errs, "authUser"))
+						mui.Field(c, T("Password"), func() { mui.TextInput(c, &w.pwd).Password().Disabled(off) }).Error(errMsg(errs, "authPwd"))
+					})
 				})
 			})
 		})
@@ -117,7 +119,7 @@ func (w *ForwardWindow) View(c *mui.Context) {
 			mui.Text(c, w.saveErr).TextColor(t.Danger)
 		}
 		mui.Row(c).Gap(t.Space(2)).Justify(mui.End).Children(func() {
-			if mui.PrimaryButton(c, T("Save")).MinWidth(t.Rem(5)).Disabled(w.saving).Clicked() || c.Shortcut(0, mui.KeyEnter) {
+			if defaultButton(c, T("Save")).MinWidth(t.Rem(5)).Disabled(w.saving).Clicked() || c.Shortcut(0, mui.KeyEnter) {
 				w.apply(p, errs)
 			}
 			if mui.Button(c, T("Cancel")).MinWidth(t.Rem(5)).Clicked() {
@@ -160,7 +162,7 @@ func OpenForwardWindow(ctrl *controller.Controller) {
 	}
 	w := NewForwardWindow(ctrl.SetForwardProxy, ctrl.Config().Proxy)
 	win := mygo.NewWindow(mygo.WindowOptions{
-		Title: i18n.T("resx.ForwardProxy"), Width: 320, Height: 520, MinWidth: 300, MinHeight: 460,
+		Title: i18n.T("resx.ForwardProxy"), Width: 280, Height: 400, MinWidth: 280, MinHeight: 400,
 		Content: mui.View(w.View),
 	})
 	w.run = func(work func() error, done func(error)) {

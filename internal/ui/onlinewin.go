@@ -170,7 +170,7 @@ func (v *onlineView) View(c *mui.Context) {
 			if mui.Button(c, T("Cancel")).Clicked() {
 				v.confirm = false
 			}
-			if mui.PrimaryButton(c, T("resx.removeButton_Content")).Clicked() {
+			if defaultButton(c, T("resx.removeButton_Content")).Clicked() {
 				v.confirmRemove()
 			}
 		})

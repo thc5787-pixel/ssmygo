@@ -245,7 +245,7 @@ func (l *logView) fontDialog(c *mui.Context) {
 		mui.Field(c, i18n.T("ssmygo.fontSize"), func() { mui.NumberInput(c, &l.fontSize, 6, 36, 0.5) })
 	})
 	mui.Row(c).Gap(t.Space(2)).Justify(mui.End).Children(func() {
-		if mui.PrimaryButton(c, i18n.T("OK")).Clicked() {
+		if defaultButton(c, i18n.T("OK")).Clicked() {
 			if l.fontFamily != "" {
 				l.v.FontFamily, l.v.FontSize = l.fontFamily, float32(l.fontSize)
 			}
