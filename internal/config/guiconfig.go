@@ -96,7 +96,16 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("%w: %v", ErrCorrupt, err)
 	}
 	c := Config(f)
-	delete(extra, "ssmygoConfigWindow") // now in WindowStates (1.0.0 wrote it)
+	// 1.0.0 kept window places itself; they move to WindowStates.
+	if raw, ok := extra["ssmygoConfigWindow"]; ok {
+		var b oldBounds
+		if json.Unmarshal(raw, &b) == nil {
+			c.migrateWindow("editServers", &b, 582, 620, 582, 620)
+		}
+		delete(extra, "ssmygoConfigWindow")
+	}
+	c.migrateWindow("logViewer", c.LogViewer.old, 640, 420, 400, 240)
+	c.LogViewer.old = nil
 	c.extra = extra
 	if c.Configs == nil {
 		c.Configs = []Server{}
