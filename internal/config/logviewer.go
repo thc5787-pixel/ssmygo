@@ -22,6 +22,7 @@ type LogViewer struct {
 	readFamily string
 	readSize   float32
 	extra      map[string]json.RawMessage
+	old        *oldBounds // 1.0.0's window place, moved by Load
 }
 
 const (
@@ -62,12 +63,19 @@ func (v *LogViewer) UnmarshalJSON(b []byte) error {
 		return err
 	}
 	// The window's size and position moved to Config.WindowStates (MyGo's
-	// window state): drop the keys earlier versions wrote here.
+	// window state): Load moves the keys 1.0.0 wrote here.
+	var old *oldBounds
 	for _, k := range []string{"width", "height", "left", "top", "maximized"} {
-		delete(extra, k)
+		if _, ok := extra[k]; ok {
+			old = &oldBounds{}
+			delete(extra, k)
+		}
+	}
+	if old != nil {
+		json.Unmarshal(b, old) // the keys parsed as JSON above; a wrong type leaves zeros
 	}
 	*v = LogViewer{TopMost: f.TopMost, WrapText: f.WrapText, ToolbarShown: f.ToolbarShown,
-		Splitter: deref(f.Splitter, d.Splitter), font: f.Font, extra: extra}
+		Splitter: deref(f.Splitter, d.Splitter), font: f.Font, extra: extra, old: old}
 	v.FontFamily, v.FontSize = parseFont(f.Font)
 	v.readFamily, v.readSize = v.FontFamily, v.FontSize
 	if v.Splitter <= 0 || v.Splitter >= 1 {
